@@ -85,28 +85,65 @@ def _google_news_rss(query: str, start: date, end: date) -> str:
     )
 
 
-def _unwrap_google_news_url(url: str) -> str:
-    """Resuelve el enlace real del publisher detrás de Google News RSS."""
+def is_google_news_url(url: str) -> bool:
+    try:
+        return "news.google.com" in (urlparse(url).netloc or "").lower()
+    except Exception:
+        return "news.google.com" in (url or "").lower()
+
+
+def unwrap_google_news_url(url: str) -> str:
+    """Devuelve la URL directa del medio (nunca deja un link de Google News)."""
+    if not url:
+        return url
     try:
         parsed = urlparse(url)
         if "news.google.com" not in parsed.netloc:
             return url
         qs = parse_qs(parsed.query)
         if "url" in qs:
-            return unquote(qs["url"][0])
-        # Formato /rss/articles/CBMi… — decodificar a URL del medio
-        if "/articles/" in parsed.path:
-            try:
-                from googlenewsdecoder import gnewsdecoder
+            direct = unquote(qs["url"][0])
+            if direct and not is_google_news_url(direct):
+                return direct
 
-                result = gnewsdecoder(url.split("&hl=")[0], interval=0)
-                if isinstance(result, dict) and result.get("status") and result.get("decoded_url"):
-                    return str(result["decoded_url"])
-            except Exception as exc:
-                logger.debug("No se pudo decodificar Google News URL: %s", exc)
-    except Exception:
-        pass
-    return url
+        # Formato /rss/articles/CBMi… → URL del publisher
+        if "/articles/" not in parsed.path:
+            return ""
+
+        clean = url.split("&hl=")[0].split("?oc=")[0]
+        variants = [clean]
+        if "/rss/articles/" in clean:
+            variants.append(clean.replace("/rss/articles/", "/articles/", 1))
+        else:
+            variants.append(clean.replace("/articles/", "/rss/articles/", 1))
+
+        try:
+            from googlenewsdecoder import gnewsdecoder
+        except ImportError:
+            logger.warning("Falta googlenewsdecoder; no se puede obtener link directo")
+            return ""
+
+        import time
+
+        for variant in variants:
+            for attempt in range(3):
+                try:
+                    result = gnewsdecoder(variant, interval=1)
+                    if isinstance(result, dict) and result.get("status"):
+                        decoded = str(result.get("decoded_url") or "").strip()
+                        if decoded and not is_google_news_url(decoded):
+                            return decoded
+                except Exception as exc:
+                    logger.debug(
+                        "Decode GNews intento %s falló: %s",
+                        attempt + 1,
+                        exc,
+                    )
+                if attempt < 2:
+                    time.sleep(1.2 * (attempt + 1))
+    except Exception as exc:
+        logger.debug("unwrap GNews falló: %s", exc)
+    return ""
 
 
 def _parse_published(entry: dict) -> date | None:
@@ -213,7 +250,7 @@ def _source_from_entry(entry: dict) -> str:
     if isinstance(source, dict) and source.get("title"):
         return str(source["title"]).strip()
     link = entry.get("link") or ""
-    host = urlparse(_unwrap_google_news_url(link)).netloc
+    host = urlparse(unwrap_google_news_url(link) or link).netloc
     return host.replace("www.", "") if host else "Fuente desconocida"
 
 
@@ -311,8 +348,14 @@ def collect_articles(
                 if count >= max_per_query:
                     break
                 title = (entry.get("title") or "").strip()
-                link = _unwrap_google_news_url((entry.get("link") or "").strip())
-                if not title or not link:
+                raw_link = (entry.get("link") or "").strip()
+                link = unwrap_google_news_url(raw_link)
+                if not title or not link or is_google_news_url(link):
+                    if raw_link and is_google_news_url(raw_link):
+                        logger.warning(
+                            "Sin link directo del medio, omitido: %s",
+                            title[:80] or raw_link[:60],
+                        )
                     continue
                 if is_blocked_title(title):
                     logger.info("Titular en lista negra, omitido: %s", title[:80])

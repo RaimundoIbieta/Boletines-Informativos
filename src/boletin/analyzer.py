@@ -5,7 +5,7 @@ import logging
 from datetime import date, datetime
 
 from boletin.config import Settings, ThemeConfig
-from boletin.collector import is_blocked_title
+from boletin.collector import is_blocked_title, is_google_news_url, unwrap_google_news_url
 from boletin.models import BoletinSemanal, NoticiaAnalizada, RawArticle
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,7 @@ Reglas de fecha (OBLIGATORIAS):
 Otras reglas:
 - Selecciona entre {min_n} y {max_n} noticias REALES de las candidatas.
 - No inventes noticias, URLs, fechas ni fuentes.
+- El campo "link" DEBE ser la URL exacta de la candidata (sitio del medio). NUNCA uses news.google.com.
 - Resumen: 3-4 líneas.
 - comentario, riesgos y oportunidades: concretos y accionables.
 - Al final, síntesis semanal de 6-8 líneas.
@@ -133,6 +134,14 @@ def _parse_boletin(
         if is_blocked_title(n.titular):
             logger.warning("Noticia en lista negra descartada: %s", n.titular[:80])
             continue
+        # Solo links directos del medio (como en generación local)
+        if is_google_news_url(n.link):
+            fixed = unwrap_google_news_url(n.link)
+            if fixed and not is_google_news_url(fixed):
+                n.link = fixed
+            else:
+                logger.warning("Link Google News sin URL directa, omitido: %s", n.titular[:80])
+                continue
         f = _parse_noticia_fecha(n.fecha)
         if f is None:
             logger.warning("Noticia sin fecha parseable descartada: %s", n.titular[:80])
