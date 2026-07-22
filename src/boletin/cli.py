@@ -153,11 +153,19 @@ def _process_test_requests(
     fetch_bulletin_by_id,
     update_send_request,
 ) -> int:
+    from datetime import timedelta
+
     from boletin.supabase_store import runtime_for_bulletin
 
     pending = fetch_pending_send_requests(base_ctx.secrets)
     if not pending:
         return 0
+
+    # Prueba: desde el lunes de la semana pasada hasta hoy (no solo la semana cerrada)
+    today = reference or date.today()
+    this_monday = today - timedelta(days=today.weekday())
+    test_start = this_monday - timedelta(days=7)
+    test_end = today
 
     done = 0
     for req in pending:
@@ -171,16 +179,23 @@ def _process_test_requests(
             ctx = runtime_for_bulletin(base_ctx, remote)
             if send:
                 ctx.secrets.validate_for_send(ctx.emails)
-            logging.info("Prueba web «%s» → %s", remote.title, ", ".join(remote.emails))
+            logging.info(
+                "Prueba web «%s» → %s | periodo %s→%s",
+                remote.title,
+                ", ".join(remote.emails),
+                test_start.isoformat(),
+                test_end.isoformat(),
+            )
             boletin, md_path, pdf_path = run_boletin(
                 ctx,
                 send_email=send,
-                reference_date=reference,
+                reference_date=today,
+                period_start=test_start,
+                period_end=test_end,
                 dry_run=dry_run,
                 skip_drive=skip_drive,
                 skip_pages=skip_pages,
             )
-            start, end = ctx.period_bounds(reference)
             print(f"— PRUEBA {remote.short_label}")
             print(f"  Noticias: {len(boletin.noticias)}")
             print(f"  Markdown: {md_path}")
@@ -191,8 +206,8 @@ def _process_test_requests(
                     ctx.secrets,
                     bulletin_id=remote.id,
                     user_id=remote.user_id,
-                    periodo_inicio=start.isoformat(),
-                    periodo_fin=end.isoformat(),
+                    periodo_inicio=test_start.isoformat(),
+                    periodo_fin=test_end.isoformat(),
                     noticias=len(boletin.noticias),
                     status="test",
                 )

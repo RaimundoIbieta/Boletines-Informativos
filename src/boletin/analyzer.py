@@ -5,6 +5,7 @@ import logging
 from datetime import date, datetime
 
 from boletin.config import Settings, ThemeConfig
+from boletin.collector import is_blocked_title
 from boletin.models import BoletinSemanal, NoticiaAnalizada, RawArticle
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,9 @@ def _parse_boletin(
     noticias: list[NoticiaAnalizada] = []
     for item in data.get("noticias", []):
         n = NoticiaAnalizada.model_validate(item)
+        if is_blocked_title(n.titular):
+            logger.warning("Noticia en lista negra descartada: %s", n.titular[:80])
+            continue
         f = _parse_noticia_fecha(n.fecha)
         if f is None:
             logger.warning("Noticia sin fecha parseable descartada: %s", n.titular[:80])

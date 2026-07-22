@@ -30,6 +30,22 @@ SEARCH_QUERIES: list[tuple[str, str]] = [
     ("Ministerio de Educación Chile alimentación escolar", "MINEDUC"),
 ]
 
+# Titulares recirculados / engañosos que no deben entrar al boletín
+TITLE_BLOCKLIST = [
+    "adiós junaeb",
+    "adios junaeb",
+    "descontinuar el programa de alimentación escolar",
+    "oficio del ministerio de hacienda que recomienda descontinuar",
+    "oficio del ministerio de hacienda recomienda descontinuar",
+    "descontinuar programas de salud mental",
+    "descontinuar programas de salud mental y de reducción",
+]
+
+
+def is_blocked_title(title: str) -> bool:
+    t = title.lower()
+    return any(b in t for b in TITLE_BLOCKLIST)
+
 # Fechas explícitas en texto chileno / ISO
 _DATE_PATTERNS = [
     re.compile(
@@ -70,7 +86,7 @@ def _google_news_rss(query: str, start: date, end: date) -> str:
 
 
 def _unwrap_google_news_url(url: str) -> str:
-    """Intenta extraer la URL real detrás de un enlace de Google News."""
+    """Resuelve el enlace real del publisher detrás de Google News RSS."""
     try:
         parsed = urlparse(url)
         if "news.google.com" not in parsed.netloc:
@@ -78,6 +94,16 @@ def _unwrap_google_news_url(url: str) -> str:
         qs = parse_qs(parsed.query)
         if "url" in qs:
             return unquote(qs["url"][0])
+        # Formato /rss/articles/CBMi… — decodificar a URL del medio
+        if "/articles/" in parsed.path:
+            try:
+                from googlenewsdecoder import gnewsdecoder
+
+                result = gnewsdecoder(url.split("&hl=")[0], interval=0)
+                if isinstance(result, dict) and result.get("status") and result.get("decoded_url"):
+                    return str(result["decoded_url"])
+            except Exception as exc:
+                logger.debug("No se pudo decodificar Google News URL: %s", exc)
     except Exception:
         pass
     return url
@@ -248,8 +274,33 @@ def collect_articles(
                 query,
             )
             try:
-                resp = client.get(feed_url)
-                resp.raise_for_status()
+                resp = None
+                last_exc: Exception | None = None
+                for attempt in range(3):
+                    try:
+                        resp = client.get(feed_url)
+                        if resp.status_code == 503:
+                            raise httpx.HTTPStatusError(
+                                "503",
+                                request=resp.request,
+                                response=resp,
+                            )
+                        resp.raise_for_status()
+                        break
+                    except Exception as exc:
+                        last_exc = exc
+                        logger.warning(
+                            "Feed intento %s/3 falló (%s): %s",
+                            attempt + 1,
+                            query[:40],
+                            exc,
+                        )
+                        if attempt < 2:
+                            import time
+
+                            time.sleep(2 * (attempt + 1))
+                else:
+                    raise last_exc or RuntimeError("feed falló")
                 feed = feedparser.parse(resp.text)
             except Exception as exc:
                 logger.warning("No se pudo leer feed '%s': %s", query, exc)
@@ -262,6 +313,9 @@ def collect_articles(
                 title = (entry.get("title") or "").strip()
                 link = _unwrap_google_news_url((entry.get("link") or "").strip())
                 if not title or not link:
+                    continue
+                if is_blocked_title(title):
+                    logger.info("Titular en lista negra, omitido: %s", title[:80])
                     continue
 
                 rss_date = _parse_published(entry)

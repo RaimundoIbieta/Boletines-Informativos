@@ -36,12 +36,17 @@ def run_boletin(
     *,
     send_email: bool = True,
     reference_date: date | None = None,
+    period_start: date | None = None,
+    period_end: date | None = None,
     dry_run: bool = False,
     skip_drive: bool = False,
     skip_pages: bool = False,
 ) -> tuple[BoletinSemanal, Path, Path]:
     theme = ctx.theme
-    start, end = ctx.period_bounds(reference_date)
+    if period_start is not None and period_end is not None:
+        start, end = period_start, period_end
+    else:
+        start, end = ctx.period_bounds(reference_date)
     generated = reference_date or date.today()
     logger.info(
         "Temática=%s | Periodo %s → %s",
