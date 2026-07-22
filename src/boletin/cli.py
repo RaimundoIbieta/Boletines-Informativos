@@ -40,10 +40,40 @@ def _cmd_run(args: argparse.Namespace) -> int:
     from boletin.supabase_store import (
         already_sent_remote,
         fetch_active_bulletins,
+        fetch_bulletin_by_id,
+        fetch_pending_send_requests,
         record_run,
         supabase_configured,
+        update_send_request,
     )
     from boletin.sent_markers import already_sent, mark_sent
+
+    # Primero: pruebas pedidas desde la web (botón Probar)
+    if (
+        supabase_configured(ctx.secrets)
+        and not args.theme
+        and not getattr(args, "local", False)
+        and (bool(args.scheduled) or bool(getattr(args, "from_web", False)) or bool(getattr(args, "process_tests", False)))
+    ):
+        try:
+            n_tests = _process_test_requests(
+                ctx,
+                send=send,
+                reference=reference,
+                dry_run=args.dry_run,
+                skip_drive=args.no_drive,
+                skip_pages=args.no_pages,
+                record_run=record_run,
+                fetch_pending_send_requests=fetch_pending_send_requests,
+                fetch_bulletin_by_id=fetch_bulletin_by_id,
+                update_send_request=update_send_request,
+            )
+            if n_tests and getattr(args, "process_tests", False) and not args.scheduled and not getattr(args, "from_web", False):
+                return 0
+        except Exception as exc:
+            logging.error("Error procesando pruebas web: %s", exc)
+            if getattr(args, "process_tests", False) and not args.scheduled:
+                return 1
 
     # Preferir boletines de la web (Supabase) en modo agenda o con --from-web
     use_web = (
@@ -108,6 +138,70 @@ def _cmd_run(args: argparse.Namespace) -> int:
     if send:
         print(f"Enviado a: {', '.join(ctx.emails)}")
     return 0
+
+
+def _process_test_requests(
+    base_ctx,
+    *,
+    send: bool,
+    reference: date | None,
+    dry_run: bool,
+    skip_drive: bool,
+    skip_pages: bool,
+    record_run,
+    fetch_pending_send_requests,
+    fetch_bulletin_by_id,
+    update_send_request,
+) -> int:
+    from boletin.supabase_store import runtime_for_bulletin
+
+    pending = fetch_pending_send_requests(base_ctx.secrets)
+    if not pending:
+        return 0
+
+    done = 0
+    for req in pending:
+        req_id = req["id"]
+        bulletin_id = req["bulletin_id"]
+        update_send_request(base_ctx.secrets, req_id, status="running")
+        try:
+            remote = fetch_bulletin_by_id(base_ctx.secrets, bulletin_id)
+            if not remote:
+                raise RuntimeError("Boletín no encontrado, sin correos o sin búsquedas.")
+            ctx = runtime_for_bulletin(base_ctx, remote)
+            if send:
+                ctx.secrets.validate_for_send(ctx.emails)
+            logging.info("Prueba web «%s» → %s", remote.title, ", ".join(remote.emails))
+            boletin, md_path, pdf_path = run_boletin(
+                ctx,
+                send_email=send,
+                reference_date=reference,
+                dry_run=dry_run,
+                skip_drive=skip_drive,
+                skip_pages=skip_pages,
+            )
+            start, end = ctx.period_bounds(reference)
+            print(f"— PRUEBA {remote.short_label}")
+            print(f"  Noticias: {len(boletin.noticias)}")
+            print(f"  Markdown: {md_path}")
+            print(f"  PDF:      {pdf_path}")
+            if send:
+                print(f"  Enviado a: {', '.join(ctx.emails)}")
+                record_run(
+                    ctx.secrets,
+                    bulletin_id=remote.id,
+                    user_id=remote.user_id,
+                    periodo_inicio=start.isoformat(),
+                    periodo_fin=end.isoformat(),
+                    noticias=len(boletin.noticias),
+                    status="test",
+                )
+            update_send_request(base_ctx.secrets, req_id, status="done")
+            done += 1
+        except Exception as exc:
+            logging.exception("Fallo prueba %s", req_id)
+            update_send_request(base_ctx.secrets, req_id, status="error", error=str(exc)[:500])
+    return done
 
 
 def _run_web_bulletins(
@@ -315,6 +409,11 @@ def main(argv: list[str] | None = None) -> int:
         "--from-web",
         action="store_true",
         help="Usar boletines/correos/frecuencia de Supabase (todos los activos)",
+    )
+    run_p.add_argument(
+        "--process-tests",
+        action="store_true",
+        help="Procesar solicitudes de prueba pendientes (botón Probar en la web)",
     )
     run_p.add_argument(
         "--local",

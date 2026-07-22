@@ -293,6 +293,35 @@ export async function setRecipients(bulletinId, emails) {
   if (error) throw new Error(error.message);
 }
 
+/** Encola una prueba de envío (la procesa GitHub Actions). */
+export async function requestTestSend(bulletinId) {
+  const u = getUser();
+  if (!u) throw new Error('Sin sesión');
+  const { data: pending } = await client()
+    .from('send_requests')
+    .select('id')
+    .eq('bulletin_id', bulletinId)
+    .eq('status', 'pending')
+    .limit(1);
+  if (pending?.length) {
+    return { id: pending[0].id, already: true };
+  }
+  const { data, error } = await client()
+    .from('send_requests')
+    .insert({ bulletin_id: bulletinId, user_id: u.id, status: 'pending' })
+    .select('id')
+    .single();
+  if (error) {
+    if (/send_requests|schema cache|does not exist/i.test(error.message)) {
+      throw new Error(
+        'Falta crear la tabla de pruebas en Supabase. Ejecuta el SQL de supabase/send_requests.sql'
+      );
+    }
+    throw new Error(error.message);
+  }
+  return { id: data.id, already: false };
+}
+
 export async function listPublicArchive() {
   // runs publicados (lectura propia + demo: solo los del usuario; admin ve todos)
   const u = getUser();

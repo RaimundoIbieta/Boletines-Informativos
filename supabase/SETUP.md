@@ -4,7 +4,7 @@
 
 1. https://supabase.com/dashboard/project/ryznnccmqyvujrlhriml/sql/new  
 2. Ejecuta `schema.sql`  
-3. Si aplica: `update_prices.sql` y `seed_pae.sql`
+3. Si aplica: `update_prices.sql`, `seed_pae.sql` y **`send_requests.sql`** (botón Probar envío)
 
 ## 2. Auth
 
@@ -44,5 +44,6 @@ No depende de tu Mac. GitHub revisa cada 30 minutos y envía los boletines cuya 
 ### Flujo diario
 
 1. En la web agregas/quitas correos y eliges día/hora  
-2. GitHub Actions envía solo cuando toca  
-3. Si cambias de Mac o se apaga, **no pasa nada**
+2. Botón **Probar envío**: guarda y encola una prueba (GitHub la manda en ≤10 min)  
+3. GitHub Actions también envía en el día/hora programados  
+4. Si cambias de Mac o se apaga, **no pasa nada**

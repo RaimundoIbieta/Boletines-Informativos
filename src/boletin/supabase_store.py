@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -165,6 +166,81 @@ def runtime_for_bulletin(base: RuntimeContext, remote: RemoteBulletin) -> Runtim
         themes={theme.id: theme},
     )
     return RuntimeContext(app=app, secrets=base.secrets)
+
+
+def fetch_bulletin_by_id(secrets: Settings, bulletin_id: str) -> RemoteBulletin | None:
+    if not supabase_configured(secrets):
+        return None
+    base = secrets.supabase_url.rstrip("/")
+    headers = _auth_headers(secrets)
+    with httpx.Client(timeout=45.0) as client:
+        resp = client.get(
+            f"{base}/rest/v1/bulletins",
+            headers=headers,
+            params={
+                "id": f"eq.{bulletin_id}",
+                "select": "*,bulletin_recipients(email)",
+                "limit": "1",
+            },
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+    if not rows:
+        return None
+    remote = _from_row(rows[0])
+    if not remote.emails or not remote.queries:
+        return None
+    return remote
+
+
+def fetch_pending_send_requests(secrets: Settings) -> list[dict[str, Any]]:
+    if not supabase_configured(secrets):
+        return []
+    base = secrets.supabase_url.rstrip("/")
+    headers = _auth_headers(secrets)
+    with httpx.Client(timeout=30.0) as client:
+        resp = client.get(
+            f"{base}/rest/v1/send_requests",
+            headers=headers,
+            params={
+                "status": "eq.pending",
+                "select": "id,bulletin_id,user_id,created_at",
+                "order": "created_at.asc",
+                "limit": "20",
+            },
+        )
+        if resp.status_code == 404:
+            logger.warning("Tabla send_requests no existe; ejecuta supabase/send_requests.sql")
+            return []
+        resp.raise_for_status()
+        return resp.json() or []
+
+
+def update_send_request(
+    secrets: Settings,
+    request_id: str,
+    *,
+    status: str,
+    error: str | None = None,
+) -> None:
+    if not supabase_configured(secrets):
+        return
+    base = secrets.supabase_url.rstrip("/")
+    headers = _auth_headers(secrets)
+    payload: dict[str, Any] = {
+        "status": status,
+        "processed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if error is not None:
+        payload["error"] = error
+    with httpx.Client(timeout=30.0) as client:
+        resp = client.patch(
+            f"{base}/rest/v1/send_requests",
+            headers={**headers, "Prefer": "return=minimal"},
+            params={"id": f"eq.{request_id}"},
+            json=payload,
+        )
+        resp.raise_for_status()
 
 
 def already_sent_remote(secrets: Settings, bulletin_id: str, periodo_inicio: str) -> bool:

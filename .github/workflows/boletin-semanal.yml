@@ -6,11 +6,15 @@ name: Envío de boletines (nube)
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
       force_all:
         description: "Enviar todos los boletines activos ahora (ignora día/hora)"
+        type: boolean
+        default: false
+      process_tests_only:
+        description: "Solo procesar pruebas pendientes (botón Probar)"
         type: boolean
         default: false
 
@@ -66,11 +70,14 @@ jobs:
           # URL por defecto si no configuraste el secret SUPABASE_URL
           export SUPABASE_URL="${SUPABASE_URL:-https://ryznnccmqyvujrlhriml.supabase.co}"
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_all }}" = "true" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.process_tests_only }}" = "true" ]; then
+            echo "Solo pruebas pendientes"
+            python -m boletin run --process-tests -v --no-drive
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_all }}" = "true" ]; then
             echo "Envío manual de todos los boletines activos"
             python -m boletin run --from-web -v --no-drive
           else
-            echo "Modo agenda: solo boletines due ahora (Chile)"
+            echo "Modo agenda + pruebas pendientes"
             python -m boletin run --scheduled -v --no-drive
           fi
 

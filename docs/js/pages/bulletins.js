@@ -10,6 +10,7 @@ import {
   setRecipients,
   getBulletin,
   ensurePaeBulletin,
+  requestTestSend,
 } from '../auth.js';
 import { navigate } from '../router.js';
 import { isPaeBulletin } from '../paeTemplate.js';
@@ -40,6 +41,37 @@ function parseQueries(text) {
 
 function queriesToText(queries) {
   return (queries || []).map((x) => `${x.q || x[0]} | ${x.topic || x[1] || 'GENERAL'}`).join('\n');
+}
+
+function readForm(container, { requireEmails = false } = {}) {
+  const payload = {
+    title: container.querySelector('#title').value.trim(),
+    short_label: container.querySelector('#short_label').value.trim(),
+    audience: container.querySelector('#audience').value.trim(),
+    focus: container.querySelector('#focus').value.trim(),
+    queries: parseQueries(container.querySelector('#queries').value),
+    analysis_axes: container
+      .querySelector('#axes')
+      .value.split('\n')
+      .map((x) => x.trim())
+      .filter(Boolean),
+    schedule_weekday: container.querySelector('#weekday').value,
+    schedule_hour: Number(container.querySelector('#hour').value),
+    schedule_minute: Number(container.querySelector('#minute').value),
+    active: container.querySelector('#active').checked,
+  };
+  const emails = container
+    .querySelector('#emails')
+    .value.split('\n')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (!payload.title || !payload.short_label || !payload.focus || !payload.queries.length) {
+    throw new Error('Completa título, etiqueta, enfoque y al menos una búsqueda.');
+  }
+  if (requireEmails && !emails.length) {
+    throw new Error('Agrega al menos un correo destinatario para poder probar el envío.');
+  }
+  return { payload, emails };
 }
 
 export async function renderApp(container) {
@@ -104,11 +136,8 @@ export async function renderBulletinEditor(container, id) {
 
   container.innerHTML = `
     <h1 class="page-title">${isNew ? 'Nuevo boletín' : 'Editar boletín'}</h1>
-    <p class="page-sub">Define temática, qué buscar en la web, frecuencia y correos de envío.
-      Los correos se envían automáticamente el día/hora configurados.${
-      !isNew && isPaeBulletin(b)
-        ? ' Este es el boletín del Programa de Alimentación Escolar (PAE).'
-        : ''
+    <p class="page-sub">Define temática, búsquedas, frecuencia y correos. Usa <strong>Probar envío</strong> para generar y mandar una prueba ahora (sin esperar el día programado).${
+      !isNew && isPaeBulletin(b) ? ' Este es el boletín PAE.' : ''
     }</p>
     <div class="card">
       <label>Título</label>
@@ -149,6 +178,7 @@ export async function renderBulletinEditor(container, id) {
       </label>
       <div class="btn-row">
         <button class="btn" id="save">Guardar</button>
+        <button class="btn btn-secondary" id="test">Probar envío</button>
         ${!isNew ? `<button class="btn btn-danger" id="del">Eliminar</button>` : ''}
         <a class="btn btn-secondary" href="#/app">Volver</a>
       </div>
@@ -157,45 +187,47 @@ export async function renderBulletinEditor(container, id) {
     </div>
   `;
 
+  async function saveBulletin({ requireEmails = false } = {}) {
+    const { payload, emails } = readForm(container, { requireEmails });
+    let saved;
+    if (isNew) saved = await createBulletin(payload);
+    else saved = await updateBulletin(id, payload);
+    await setRecipients(saved.id, emails);
+    return saved;
+  }
+
   container.querySelector('#save').onclick = async () => {
     const err = container.querySelector('#err');
     const ok = container.querySelector('#ok');
     err.textContent = '';
     ok.textContent = '';
     try {
-      const payload = {
-        title: container.querySelector('#title').value.trim(),
-        short_label: container.querySelector('#short_label').value.trim(),
-        audience: container.querySelector('#audience').value.trim(),
-        focus: container.querySelector('#focus').value.trim(),
-        queries: parseQueries(container.querySelector('#queries').value),
-        analysis_axes: container
-          .querySelector('#axes')
-          .value.split('\n')
-          .map((x) => x.trim())
-          .filter(Boolean),
-        schedule_weekday: container.querySelector('#weekday').value,
-        schedule_hour: Number(container.querySelector('#hour').value),
-        schedule_minute: Number(container.querySelector('#minute').value),
-        active: container.querySelector('#active').checked,
-      };
-      if (!payload.title || !payload.short_label || !payload.focus || !payload.queries.length) {
-        throw new Error('Completa título, etiqueta, enfoque y al menos una búsqueda.');
-      }
-      let saved;
-      if (isNew) saved = await createBulletin(payload);
-      else saved = await updateBulletin(id, payload);
-
-      const emails = container
-        .querySelector('#emails')
-        .value.split('\n')
-        .map((x) => x.trim())
-        .filter(Boolean);
-      await setRecipients(saved.id, emails);
+      const saved = await saveBulletin();
       ok.textContent = 'Guardado.';
       navigate(`#/boletin/${saved.id}`);
     } catch (e) {
       err.textContent = e.message;
+    }
+  };
+
+  container.querySelector('#test').onclick = async () => {
+    const err = container.querySelector('#err');
+    const ok = container.querySelector('#ok');
+    const btn = container.querySelector('#test');
+    err.textContent = '';
+    ok.textContent = '';
+    btn.disabled = true;
+    try {
+      const saved = await saveBulletin({ requireEmails: true });
+      const req = await requestTestSend(saved.id);
+      ok.textContent = req.already
+        ? 'Ya hay una prueba en cola. En unos minutos (máx. ~10) llegará el correo.'
+        : 'Prueba solicitada. En unos minutos (máx. ~10) se generará y enviará a los correos guardados.';
+      if (isNew) navigate(`#/boletin/${saved.id}`);
+    } catch (e) {
+      err.textContent = e.message;
+    } finally {
+      btn.disabled = false;
     }
   };
 
