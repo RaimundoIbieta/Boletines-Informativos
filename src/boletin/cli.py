@@ -68,7 +68,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 fetch_bulletin_by_id=fetch_bulletin_by_id,
                 update_send_request=update_send_request,
             )
-            if n_tests and getattr(args, "process_tests", False) and not args.scheduled and not getattr(args, "from_web", False):
+            if getattr(args, "process_tests", False) and not args.scheduled and not getattr(args, "from_web", False):
+                if n_tests:
+                    logging.info("Pruebas web procesadas: %s", n_tests)
+                else:
+                    logging.info("No había pruebas pendientes en send_requests.")
                 return 0
         except Exception as exc:
             logging.error("Error procesando pruebas web: %s", exc)
