@@ -167,6 +167,32 @@ def runtime_for_bulletin(base: RuntimeContext, remote: RemoteBulletin) -> Runtim
     return RuntimeContext(app=app, secrets=base.secrets)
 
 
+def already_sent_remote(secrets: Settings, bulletin_id: str, periodo_inicio: str) -> bool:
+    """True si ya hay un run publicado en Supabase para ese boletín/periodo."""
+    if not supabase_configured(secrets):
+        return False
+    base = secrets.supabase_url.rstrip("/")
+    headers = _auth_headers(secrets)
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.get(
+                f"{base}/rest/v1/bulletin_runs",
+                headers=headers,
+                params={
+                    "bulletin_id": f"eq.{bulletin_id}",
+                    "periodo_inicio": f"eq.{periodo_inicio}",
+                    "status": "eq.published",
+                    "select": "id",
+                    "limit": "1",
+                },
+            )
+            resp.raise_for_status()
+            return bool(resp.json())
+    except Exception as exc:
+        logger.warning("No se pudo consultar runs previos: %s", exc)
+        return False
+
+
 def record_run(
     secrets: Settings,
     *,

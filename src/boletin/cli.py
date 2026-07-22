@@ -38,6 +38,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     send = not (args.no_email or args.dry_run)
 
     from boletin.supabase_store import (
+        already_sent_remote,
         fetch_active_bulletins,
         record_run,
         supabase_configured,
@@ -69,6 +70,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 skip_drive=args.no_drive,
                 skip_pages=args.no_pages,
                 already_sent=already_sent,
+                already_sent_remote=already_sent_remote,
                 mark_sent=mark_sent,
                 record_run=record_run,
             )
@@ -119,6 +121,7 @@ def _run_web_bulletins(
     skip_drive: bool,
     skip_pages: bool,
     already_sent,
+    already_sent_remote,
     mark_sent,
     record_run,
 ) -> int:
@@ -138,7 +141,10 @@ def _run_web_bulletins(
             continue
 
         start, end = ctx.period_bounds(reference)
-        if scheduled and already_sent(remote.id, start):
+        if scheduled and (
+            already_sent(remote.id, start)
+            or already_sent_remote(ctx.secrets, remote.id, start.isoformat())
+        ):
             logging.info(
                 "Omitido %s (ya enviado para periodo %s)",
                 remote.short_label,

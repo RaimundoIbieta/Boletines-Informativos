@@ -1,17 +1,26 @@
-name: Boletín semanal PAE
+name: Envío de boletines (nube)
+
+# Corre en la nube: no depende de tu Mac.
+# Cada 30 min (UTC) revisa qué boletines de Supabase toca enviar
+# según día/hora Chile de cada uno.
 
 on:
   schedule:
-    # Chile (America/Santiago): 07:30 = 10:30 UTC (verano) o 11:30 UTC (invierno).
-    # El script --scheduled solo continúa si es lunes 07:30–07:59 hora Chile.
-    - cron: "30 10 * * 1"
-    - cron: "30 11 * * 1"
+    - cron: "*/30 * * * *"
   workflow_dispatch:
+    inputs:
+      force_all:
+        description: "Enviar todos los boletines activos ahora (ignora día/hora)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
 
 jobs:
-  generar-y-enviar:
+  enviar:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,26 +34,59 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
-      - name: Ejecutar boletín
+      - name: Verificar secretos mínimos
         env:
-          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          missing=0
+          for v in GMAIL_USER GMAIL_APP_PASSWORD GEMINI_API_KEY SUPABASE_SERVICE_ROLE_KEY; do
+            if [ -z "${!v}" ]; then
+              echo "::error::Falta el secret $v (Repo → Settings → Secrets and variables → Actions)"
+              missing=1
+            fi
+          done
+          exit $missing
+
+      - name: Ejecutar boletines desde la web
+        env:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TZ: America/Santiago
-          SCHEDULE_HOUR: "7"
-          SCHEDULE_MINUTE: "30"
           PYTHONPATH: src
         run: |
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            python -m boletin --scheduled -v
+          # URL por defecto si no configuraste el secret SUPABASE_URL
+          export SUPABASE_URL="${SUPABASE_URL:-https://ryznnccmqyvujrlhriml.supabase.co}"
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_all }}" = "true" ]; then
+            echo "Envío manual de todos los boletines activos"
+            python -m boletin run --from-web -v --no-drive
           else
-            python -m boletin -v
+            echo "Modo agenda: solo boletines due ahora (Chile)"
+            python -m boletin run --scheduled -v --no-drive
           fi
+
+      - name: Publicar PDFs en GitHub Pages (si hubo output)
+        if: success()
+        run: |
+          if [ -z "$(git status --porcelain docs/)" ]; then
+            echo "Sin cambios en docs/"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data docs/boletines || true
+          git diff --staged --quiet && exit 0
+          git commit -m "Publish bulletin artifacts from scheduled run"
+          git push
 
       - name: Subir artefactos
         if: always()
@@ -53,4 +95,4 @@ jobs:
           name: boletin-output
           path: output/
           if-no-files-found: ignore
-          retention-days: 90
+          retention-days: 30
