@@ -229,6 +229,18 @@ export async function listMyBulletins() {
   return data || [];
 }
 
+/** Crea el boletín PAE del programa si el admin aún no lo tiene en Supabase. */
+export async function ensurePaeBulletin() {
+  if (!isSuperAdmin()) return null;
+  const { PAE_BULLETIN, PAE_DEFAULT_EMAILS, isPaeBulletin } = await import('./paeTemplate.js');
+  const list = await listMyBulletins();
+  const existing = list.find(isPaeBulletin);
+  if (existing) return existing;
+  const saved = await createBulletin({ ...PAE_BULLETIN });
+  await setRecipients(saved.id, PAE_DEFAULT_EMAILS);
+  return getBulletin(saved.id);
+}
+
 export async function getBulletin(id) {
   const { data, error } = await client()
     .from('bulletins')

@@ -9,8 +9,10 @@ import {
   deleteBulletin,
   setRecipients,
   getBulletin,
+  ensurePaeBulletin,
 } from '../auth.js';
 import { navigate } from '../router.js';
+import { isPaeBulletin } from '../paeTemplate.js';
 
 const DAYS = [
   ['monday', 'Lunes'],
@@ -45,11 +47,23 @@ export async function renderApp(container) {
   if (!u) return navigate('#/login');
   if (!hasActiveSubscription() && !isSuperAdmin()) return navigate('#/plan');
 
-  const list = await listMyBulletins();
+  let list = await listMyBulletins();
+  let importNote = '';
+  if (isSuperAdmin() && !list.some(isPaeBulletin)) {
+    try {
+      await ensurePaeBulletin();
+      list = await listMyBulletins();
+      importNote = 'Se importó el boletín PAE (Programa de Alimentación Escolar) para que puedas editarlo y agregar correos.';
+    } catch (e) {
+      importNote = `No se pudo importar el PAE automáticamente: ${e.message}`;
+    }
+  }
+
   container.innerHTML = `
     <h1 class="page-title">Mis boletines</h1>
     <p class="page-sub">Plan: <strong>${u.plan || (isSuperAdmin() ? 'admin' : '—')}</strong> ·
       ${list.length}/${maxBulletins()} boletines</p>
+    ${importNote ? `<p class="muted">${importNote}</p>` : ''}
     <div class="btn-row">
       <a class="btn" href="#/boletin/nuevo">Crear boletín</a>
       <a class="btn btn-secondary" href="#/archivo">Archivo / PDFs</a>
@@ -90,7 +104,11 @@ export async function renderBulletinEditor(container, id) {
 
   container.innerHTML = `
     <h1 class="page-title">${isNew ? 'Nuevo boletín' : 'Editar boletín'}</h1>
-    <p class="page-sub">Define temática, qué buscar en la web, frecuencia y correos de envío.</p>
+    <p class="page-sub">Define temática, qué buscar en la web, frecuencia y correos de envío.${
+      !isNew && isPaeBulletin(b)
+        ? ' Este es el boletín del Programa de Alimentación Escolar (PAE).'
+        : ''
+    }</p>
     <div class="card">
       <label>Título</label>
       <input id="title" value="${b?.title || ''}" placeholder="Boletín semanal minería Chile" />
