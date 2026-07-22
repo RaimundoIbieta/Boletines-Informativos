@@ -104,7 +104,8 @@ export async function renderBulletinEditor(container, id) {
 
   container.innerHTML = `
     <h1 class="page-title">${isNew ? 'Nuevo boletín' : 'Editar boletín'}</h1>
-    <p class="page-sub">Define temática, qué buscar en la web, frecuencia y correos de envío.${
+    <p class="page-sub">Define temática, qué buscar en la web, frecuencia y correos de envío.
+      Los correos se envían automáticamente el día/hora configurados.${
       !isNew && isPaeBulletin(b)
         ? ' Este es el boletín del Programa de Alimentación Escolar (PAE).'
         : ''

@@ -34,6 +34,46 @@ def _cmd_run(args: argparse.Namespace) -> int:
             return 1
         ctx.app.active_theme = args.theme
 
+    reference = date.fromisoformat(args.date) if args.date else None
+    send = not (args.no_email or args.dry_run)
+
+    from boletin.supabase_store import (
+        fetch_active_bulletins,
+        record_run,
+        supabase_configured,
+    )
+    from boletin.sent_markers import already_sent, mark_sent
+
+    # Preferir boletines de la web (Supabase) en modo agenda o con --from-web
+    use_web = (
+        supabase_configured(ctx.secrets)
+        and not args.theme
+        and not getattr(args, "local", False)
+        and (bool(args.scheduled) or bool(getattr(args, "from_web", False)))
+    )
+    if use_web:
+        try:
+            remotes = fetch_active_bulletins(ctx.secrets)
+        except Exception as exc:
+            logging.error("No se pudieron leer boletines de Supabase: %s", exc)
+            return 1
+
+        if remotes:
+            return _run_web_bulletins(
+                ctx,
+                remotes,
+                scheduled=bool(args.scheduled),
+                send=send,
+                reference=reference,
+                dry_run=args.dry_run,
+                skip_drive=args.no_drive,
+                skip_pages=args.no_pages,
+                already_sent=already_sent,
+                mark_sent=mark_sent,
+                record_run=record_run,
+            )
+        logging.info("Supabase sin boletines activos con correos; uso config.yaml local.")
+
     if args.scheduled and not should_run_scheduled(ctx):
         now = datetime.now(ctx.timezone)
         logging.info(
@@ -44,9 +84,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
             now.isoformat(),
         )
         return 0
-
-    reference = date.fromisoformat(args.date) if args.date else None
-    send = not (args.no_email or args.dry_run)
 
     if send:
         ctx.secrets.validate_for_send(ctx.emails)
@@ -68,6 +105,95 @@ def _cmd_run(args: argparse.Namespace) -> int:
     print(f"PDF:      {pdf_path}")
     if send:
         print(f"Enviado a: {', '.join(ctx.emails)}")
+    return 0
+
+
+def _run_web_bulletins(
+    base_ctx,
+    remotes,
+    *,
+    scheduled: bool,
+    send: bool,
+    reference: date | None,
+    dry_run: bool,
+    skip_drive: bool,
+    skip_pages: bool,
+    already_sent,
+    mark_sent,
+    record_run,
+) -> int:
+    from boletin.supabase_store import runtime_for_bulletin
+
+    ran = 0
+    for remote in remotes:
+        ctx = runtime_for_bulletin(base_ctx, remote)
+        if scheduled and not should_run_scheduled(ctx):
+            logging.info(
+                "Omitido %s (fuera de ventana %s %02d:%02d)",
+                remote.short_label,
+                remote.schedule_weekday,
+                remote.schedule_hour,
+                remote.schedule_minute,
+            )
+            continue
+
+        start, end = ctx.period_bounds(reference)
+        if scheduled and already_sent(remote.id, start):
+            logging.info(
+                "Omitido %s (ya enviado para periodo %s)",
+                remote.short_label,
+                start.isoformat(),
+            )
+            continue
+
+        if send:
+            try:
+                ctx.secrets.validate_for_send(ctx.emails)
+            except ValueError as exc:
+                logging.error("%s: %s", remote.short_label, exc)
+                continue
+        elif not ctx.secrets.has_llm_key():
+            logging.error("Falta API key de IA en .env")
+            return 1
+
+        logging.info(
+            "Generando «%s» → %s",
+            remote.title,
+            ", ".join(remote.emails),
+        )
+        boletin, md_path, pdf_path = run_boletin(
+            ctx,
+            send_email=send,
+            reference_date=reference,
+            dry_run=dry_run,
+            skip_drive=skip_drive,
+            skip_pages=skip_pages,
+        )
+        print(f"— {remote.short_label}")
+        print(f"  Noticias: {len(boletin.noticias)}")
+        print(f"  Markdown: {md_path}")
+        print(f"  PDF:      {pdf_path}")
+        if send:
+            print(f"  Enviado a: {', '.join(ctx.emails)}")
+            mark_sent(remote.id, start, note=f"{len(boletin.noticias)} noticias")
+            record_run(
+                ctx.secrets,
+                bulletin_id=remote.id,
+                user_id=remote.user_id,
+                periodo_inicio=start.isoformat(),
+                periodo_fin=end.isoformat(),
+                noticias=len(boletin.noticias),
+                pdf_url="",
+                drive_url="",
+                status="published",
+            )
+        ran += 1
+
+    if scheduled and ran == 0:
+        logging.info("Ningún boletín web due en esta ventana.")
+    elif ran == 0:
+        logging.warning("No se ejecutó ningún boletín.")
+        return 1
     return 0
 
 
@@ -179,6 +305,16 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--no-drive", action="store_true")
     run_p.add_argument("--no-pages", action="store_true")
     run_p.add_argument("--scheduled", action="store_true")
+    run_p.add_argument(
+        "--from-web",
+        action="store_true",
+        help="Usar boletines/correos/frecuencia de Supabase (todos los activos)",
+    )
+    run_p.add_argument(
+        "--local",
+        action="store_true",
+        help="Forzar config.yaml (ignorar boletines de Supabase)",
+    )
     run_p.add_argument("--date", type=str, default=None)
     run_p.add_argument("--theme", type=str, default=None, help="Override de temática")
     run_p.add_argument("-v", "--verbose", action="store_true")

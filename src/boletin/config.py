@@ -150,6 +150,17 @@ class Settings(BaseSettings):
     schedule_hour: int | None = None
     schedule_minute: int | None = None
 
+    # Supabase (motor Mac lee boletines/correos/frecuencia de la web)
+    supabase_url: str = "https://ryznnccmqyvujrlhriml.supabase.co"
+    supabase_service_role_key: str = ""
+    supabase_anon_key: str = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5em5uY2NtcXl2dWpybGhyaW1sIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3MjY0NjEsImV4cCI6MjEwMDMwMjQ2MX0."
+        "lAjWArOOVgs9NnCt9ZBwYEDDAjyaThRBOgQKGMWbX-U"
+    )
+    supabase_worker_email: str = ""
+    supabase_worker_password: str = ""
+
     @model_validator(mode="before")
     @classmethod
     def _drop_blank_env(cls, data: object) -> object:

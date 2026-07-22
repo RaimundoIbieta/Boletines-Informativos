@@ -1,5 +1,5 @@
 /** Config pública (anon key — segura en frontend) */
-export const CACHE_VERSION = '3';
+export const CACHE_VERSION = '4';
 
 export const APP_CONFIG = {
   superadminEmail: 'raimundoibieta@gmail.com',

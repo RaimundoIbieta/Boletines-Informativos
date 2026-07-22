@@ -12,6 +12,7 @@ mkdir -p "$LOG_DIR"
 
 {
   echo "===== $(date '+%Y-%m-%d %H:%M:%S %Z') ====="
-  "$ROOT/.venv/bin/python" -m boletin run -v
+  # --scheduled: solo envía boletines cuya frecuencia (día/hora) aplica ahora
+  "$ROOT/.venv/bin/python" -m boletin run --scheduled -v
   echo "OK"
 } >>"$LOG_DIR/boletin-lunes.log" 2>&1

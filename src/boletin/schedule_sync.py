@@ -4,7 +4,8 @@ import plistlib
 import subprocess
 from pathlib import Path
 
-from boletin.config import ROOT, WEEKDAY_NAMES, get_runtime
+from boletin.config import ROOT, get_runtime
+from boletin.supabase_store import supabase_configured
 
 LAUNCH_AGENTS = Path.home() / "Library" / "LaunchAgents"
 LABEL = "cl.boletin.pae.semanal"
@@ -13,27 +14,39 @@ SCRIPT = ROOT / "scripts" / "run_boletin.sh"
 
 
 def sync_launch_agent() -> Path:
-    """Regenera el LaunchAgent según config.yaml (día/hora)."""
+    """Regenera el LaunchAgent.
+
+    Con Supabase: cada 30 min ejecuta `run --scheduled` y solo envía los
+    boletines cuya frecuencia (día/hora) cae en la ventana.
+    Sin Supabase: un disparo semanal según config.yaml.
+    """
     ctx = get_runtime()
     LAUNCH_AGENTS.mkdir(parents=True, exist_ok=True)
 
-    # launchd: 0 y 7 = domingo, 1 = lunes … 6 = sábado
-    # Nuestro weekday_index: 0 = lunes … 6 = domingo
-    launchd_weekday = (ctx.schedule_weekday + 1) % 7
-
-    plist = {
+    plist: dict = {
         "Label": LABEL,
         "ProgramArguments": ["/bin/zsh", str(SCRIPT)],
         "WorkingDirectory": str(ROOT),
-        "StartCalendarInterval": {
-            "Weekday": launchd_weekday,
-            "Hour": ctx.schedule_hour,
-            "Minute": ctx.schedule_minute,
-        },
         "RunAtLoad": False,
         "StandardOutPath": str(ROOT / "output" / "launchd.out.log"),
         "StandardErrorPath": str(ROOT / "output" / "launchd.err.log"),
     }
+
+    if supabase_configured(ctx.secrets):
+        # Cada 30 minutos; el CLI decide qué boletines envía
+        plist["StartInterval"] = 30 * 60
+        mode = "cada 30 min (boletines web / frecuencia por boletín)"
+    else:
+        launchd_weekday = (ctx.schedule_weekday + 1) % 7
+        plist["StartCalendarInterval"] = {
+            "Weekday": launchd_weekday,
+            "Hour": ctx.schedule_hour,
+            "Minute": ctx.schedule_minute,
+        }
+        mode = (
+            f"semanal config.yaml → weekday={ctx.schedule_weekday} "
+            f"{ctx.schedule_hour:02d}:{ctx.schedule_minute:02d}"
+        )
 
     with PLIST_PATH.open("wb") as fh:
         plistlib.dump(plist, fh)
@@ -49,9 +62,5 @@ def sync_launch_agent() -> Path:
     )
     subprocess.run(["launchctl", "enable", target], check=False, capture_output=True)
 
-    day = WEEKDAY_NAMES.get(ctx.schedule_weekday, str(ctx.schedule_weekday))
-    print(
-        f"Programado: {day} {ctx.schedule_hour:02d}:{ctx.schedule_minute:02d} "
-        f"({ctx.app.schedule.timezone})"
-    )
+    print(f"LaunchAgent actualizado: {mode}")
     return PLIST_PATH
