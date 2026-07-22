@@ -27,7 +27,6 @@ function renderNav() {
     if (isSuperAdmin()) links.push(`<a href="#/admin">Admin</a>`);
   } else {
     links.push(`<a href="#/login">Entrar</a>`);
-    links.push(`<a href="#/registro">Registro</a>`);
   }
   nav.innerHTML = links.join('');
   renderAuthButton(authSlot);
@@ -39,14 +38,14 @@ function renderHome() {
     <section class="hero">
       <p class="chip">Etapa de pruebas · herramientas free</p>
       <h1>${APP_CONFIG.brandName}</h1>
-      <p class="lede">${APP_CONFIG.tagline}. Crea boletines por temática, define búsquedas web, destinatarios y frecuencia. El admin activa tu plan.</p>
+      <p class="lede">${APP_CONFIG.tagline}. El administrador crea tu cuenta y te asigna un plan. Luego configuras temáticas, búsquedas, correos y frecuencia.</p>
       <div class="btn-row">
         ${
           u
             ? `<a class="btn" href="#/${hasActiveSubscription() || isSuperAdmin() ? 'app' : 'plan'}">Ir a mi panel</a>`
-            : `<a class="btn" href="#/registro">Crear cuenta</a><a class="btn btn-secondary" href="#/login">Entrar</a>`
+            : `<a class="btn" href="#/login">Entrar</a>`
         }
-        <a class="btn btn-secondary" href="#/archivo">Ver archivo público</a>
+        <a class="btn btn-secondary" href="#/archivo">Ver archivo</a>
       </div>
     </section>
   `;
@@ -60,8 +59,11 @@ async function renderRoute(route) {
     navigate('#/');
     return;
   }
-  if (name === 'login') return renderLogin(view, 'login');
-  if (name === 'registro') return renderLogin(view, 'registro');
+  if (name === 'login') return renderLogin(view);
+  if (name === 'registro') {
+    view.innerHTML = `<div class="card"><p>El registro público está desactivado. Solicita acceso al administrador.</p><a class="btn" href="#/login">Ir a entrar</a></div>`;
+    return;
+  }
   if (name === 'plan') return renderPlan(view);
   if (name === 'admin') return renderAdmin(view);
   if (name === 'app') return renderApp(view);

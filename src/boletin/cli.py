@@ -159,6 +159,13 @@ def _cmd_sync_schedule(_: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_admin(args: argparse.Namespace) -> int:
+    from boletin.admin_app import run_admin
+
+    run_admin(port=args.port, open_browser=not args.no_browser)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Boletines semanales configurables → correo + PDF + Drive + GitHub Pages",
@@ -205,10 +212,12 @@ def main(argv: list[str] | None = None) -> int:
         func=_cmd_sync_schedule
     )
 
-    # Compatibilidad: `python -m boletin --no-email` sin subcomando
-    if argv is None:
-        argv = sys.argv[1:]
-    if argv and not argv[0].startswith("-") and argv[0] in {
+    adm = sub.add_parser("admin", help="Abrir panel web local de configuración")
+    adm.add_argument("--port", type=int, default=5055)
+    adm.add_argument("--no-browser", action="store_true")
+    adm.set_defaults(func=_cmd_admin)
+
+    commands = {
         "run",
         "config",
         "add-email",
@@ -217,7 +226,13 @@ def main(argv: list[str] | None = None) -> int:
         "set-theme",
         "drive-auth",
         "sync-schedule",
-    }:
+        "admin",
+    }
+
+    # Compatibilidad: `python -m boletin --no-email` sin subcomando
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv and not argv[0].startswith("-") and argv[0] in commands:
         args = parser.parse_args(argv)
         if args.command != "run":
             return args.func(args)

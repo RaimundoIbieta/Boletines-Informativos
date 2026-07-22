@@ -22,9 +22,9 @@ create table if not exists public.plans (
 );
 
 insert into public.plans (id, name, max_bulletins, price_clp, description) values
-  ('basic', 'Básico', 1, 4990, '1 boletín semanal personalizado'),
-  ('pro', 'Pro', 3, 9990, 'Hasta 3 boletines con distintas temáticas'),
-  ('business', 'Empresa', 10, 19990, 'Hasta 10 boletines para tu equipo')
+  ('basic', 'Básico', 1, 49990, '1 boletín semanal personalizado'),
+  ('pro', 'Pro', 3, 99990, 'Hasta 3 boletines (incluye 2 o 3 temáticas)'),
+  ('business', 'Empresa', 10, 199990, 'Hasta 10 boletines para tu equipo')
 on conflict (id) do update set
   name = excluded.name,
   max_bulletins = excluded.max_bulletins,

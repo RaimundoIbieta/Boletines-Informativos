@@ -1,5 +1,5 @@
-import { APP_CONFIG } from './config.js';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.8';
+import { APP_CONFIG } from './config.js';
 
 let supabase = null;
 let currentUser = null;
@@ -130,24 +130,42 @@ export async function signIn(email, password) {
   return currentUser;
 }
 
-export async function signUp(email, password, name = '') {
+export async function signUp(_email, _password, _name = '') {
+  throw new Error('El registro público está desactivado. Solo el administrador puede crear cuentas.');
+}
+
+/** Admin crea usuario (sin cerrar tu sesión) + opcionalmente otorga plan. */
+export async function adminCreateUser({ email, password, name = '', planId = 'basic', months = 1 }) {
+  if (!isSuperAdmin()) throw new Error('Solo admin.');
   const em = email.trim().toLowerCase();
-  if (password.length < 6) throw new Error('La contraseña debe tener al menos 6 caracteres.');
-  const sb = client();
-  const { data, error } = await sb.auth.signUp({
+  const nm = (name || '').trim() || em.split('@')[0];
+  if (!em || !password || password.length < 6) {
+    throw new Error('Correo válido y contraseña de al menos 6 caracteres.');
+  }
+
+  const temp = createClient(APP_CONFIG.supabaseUrl, APP_CONFIG.supabaseAnonKey, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+
+  const { data, error } = await temp.auth.signUp({
     email: em,
     password,
-    options: { data: { name: name || em.split('@')[0] } },
+    options: { data: { name: nm, role: 'user' } },
   });
   if (error) throw new Error(error.message);
-  if (!data.session) {
-    throw new Error(
-      'Cuenta creada. Si pide confirmar correo: en Supabase → Authentication → Providers → Email → desactiva "Confirm email" (etapa de pruebas).'
-    );
-  }
-  currentUser = await loadUser(data.user);
-  notify();
-  return currentUser;
+  if (!data.user) throw new Error('No se pudo crear el usuario.');
+
+  const sb = client();
+  await sb.from('profiles').upsert({
+    id: data.user.id,
+    email: em,
+    name: nm,
+    role: 'user',
+  });
+
+  const monthsN = Math.max(1, Number(months) || 1);
+  await adminGrantPlan(em, planId || 'basic', monthsN);
+  return { id: data.user.id, email: em, name: nm };
 }
 
 export async function signOut() {

@@ -7,6 +7,7 @@ import {
   fetchAllProfiles,
   fetchSubscriptions,
   adminGrantPlan,
+  adminCreateUser,
 } from '../auth.js';
 import { navigate } from '../router.js';
 
@@ -23,7 +24,7 @@ export async function renderPlan(container) {
   }
 
   container.innerHTML = `
-    <h1 class="page-title">Elige tu plan</h1>
+    <h1 class="page-title">Tu plan</h1>
     <p class="page-sub">${APP_CONFIG.pricingNote}</p>
     <div class="grid grid-3">
       ${plans
@@ -31,7 +32,7 @@ export async function renderPlan(container) {
           (p) => `
         <div class="card">
           <span class="chip">${p.name}</span>
-          <div class="pricing-amount">$${(p.price_clp || 0).toLocaleString('es-CL')}</div>
+          <div class="pricing-amount">$${(p.price_clp || 0).toLocaleString('es-CL')}<span class="muted"> / mes</span></div>
           <p class="muted">Hasta <strong>${p.max_bulletins}</strong> boletín(es)</p>
           <p>${p.description || ''}</p>
         </div>`
@@ -39,8 +40,7 @@ export async function renderPlan(container) {
         .join('')}
     </div>
     <div class="card" style="margin-top:16px">
-      <p>En pruebas, el <strong>admin</strong> activa tu plan desde el panel Admin (sin cobro aún).</p>
-      <p class="muted">Tu correo: ${u.email}</p>
+      <p>Aún no tienes un plan activo. El administrador debe crear tu cuenta y asignarte un plan.</p>
       <a class="btn btn-secondary" href="#/">Volver</a>
     </div>
   `;
@@ -63,27 +63,61 @@ export async function renderAdmin(container) {
 
   container.innerHTML = `
     <h1 class="page-title">Admin</h1>
-    <p class="page-sub">Activa el acceso de usuarios asignando un plan. El cobro real (Mercado Pago) vendrá después.</p>
+    <p class="page-sub">Solo tú creas usuarios y les asignas un plan de pago.</p>
 
     <div class="card">
-      <h2>Otorgar / renovar plan</h2>
-      <label>Correo del usuario (debe haberse registrado en la web)</label>
+      <h2>Crear usuario + plan</h2>
+      <label>Nombre</label>
+      <input id="name" placeholder="Nombre del cliente" />
+      <label>Correo</label>
       <input id="email" type="email" placeholder="usuario@empresa.cl" />
+      <label>Contraseña temporal</label>
+      <input id="password" type="text" placeholder="mínimo 6 caracteres" />
       <label>Plan</label>
       <select id="plan">
-        ${plans.map((p) => `<option value="${p.id}">${p.name} (${p.max_bulletins} boletines) — $${p.price_clp}</option>`).join('')}
+        ${plans
+          .map(
+            (p) =>
+              `<option value="${p.id}">${p.name} — ${p.max_bulletins} boletín(es) — $${(p.price_clp || 0).toLocaleString('es-CL')}/mes</option>`
+          )
+          .join('')}
       </select>
-      <label>Meses</label>
+      <label>Meses de acceso</label>
       <input id="months" type="number" min="1" value="1" />
       <div class="btn-row">
-        <button class="btn" id="grant">Activar plan</button>
+        <button class="btn" id="create">Crear usuario</button>
       </div>
       <p class="error" id="err"></p>
       <p class="muted" id="ok"></p>
     </div>
 
     <div class="card" style="margin-top:16px">
-      <h2>Usuarios registrados</h2>
+      <h2>Renovar / cambiar plan de un usuario existente</h2>
+      <label>Correo</label>
+      <input id="email2" type="email" list="user-emails" />
+      <datalist id="user-emails">
+        ${profiles.map((p) => `<option value="${p.email}">`).join('')}
+      </datalist>
+      <label>Plan</label>
+      <select id="plan2">
+        ${plans
+          .map(
+            (p) =>
+              `<option value="${p.id}">${p.name} — $${(p.price_clp || 0).toLocaleString('es-CL')}/mes</option>`
+          )
+          .join('')}
+      </select>
+      <label>Meses a agregar</label>
+      <input id="months2" type="number" min="1" value="1" />
+      <div class="btn-row">
+        <button class="btn btn-secondary" id="grant">Actualizar plan</button>
+      </div>
+      <p class="error" id="err2"></p>
+      <p class="muted" id="ok2"></p>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2>Usuarios</h2>
       <table class="table">
         <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Plan</th><th>Hasta</th></tr></thead>
         <tbody>
@@ -104,18 +138,38 @@ export async function renderAdmin(container) {
     </div>
   `;
 
-  container.querySelector('#grant').onclick = async () => {
+  container.querySelector('#create').onclick = async () => {
     const err = container.querySelector('#err');
     const ok = container.querySelector('#ok');
     err.textContent = '';
     ok.textContent = '';
     try {
+      const created = await adminCreateUser({
+        email: container.querySelector('#email').value,
+        password: container.querySelector('#password').value,
+        name: container.querySelector('#name').value,
+        planId: container.querySelector('#plan').value,
+        months: container.querySelector('#months').value,
+      });
+      ok.textContent = `Usuario creado: ${created.email}`;
+      await renderAdmin(container);
+    } catch (e) {
+      err.textContent = e.message;
+    }
+  };
+
+  container.querySelector('#grant').onclick = async () => {
+    const err = container.querySelector('#err2');
+    const ok = container.querySelector('#ok2');
+    err.textContent = '';
+    ok.textContent = '';
+    try {
       await adminGrantPlan(
-        container.querySelector('#email').value,
-        container.querySelector('#plan').value,
-        container.querySelector('#months').value
+        container.querySelector('#email2').value,
+        container.querySelector('#plan2').value,
+        container.querySelector('#months2').value
       );
-      ok.textContent = 'Plan activado.';
+      ok.textContent = 'Plan actualizado.';
       await renderAdmin(container);
     } catch (e) {
       err.textContent = e.message;
