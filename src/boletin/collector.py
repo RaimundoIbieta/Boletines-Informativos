@@ -21,13 +21,13 @@ USER_AGENT = (
 )
 
 SEARCH_QUERIES: list[tuple[str, str]] = [
-    ("JUNAEB OR \"Programa de Alimentación Escolar\" OR PAE JUNAEB", "JUNAEB_PAE"),
-    ("JUNAEB alimentación escolar Chile", "JUNAEB_PAE"),
-    ("\"Programa de Alimentación Escolar\" Chile", "JUNAEB_PAE"),
-    ("JUNJI alimentación OR colación OR comida", "JUNJI_INTEGRA"),
-    ("\"Fundación Integra\" alimentación OR colación", "JUNJI_INTEGRA"),
-    ("MINEDUC Chile educación OR subvención OR liceo", "MINEDUC"),
-    ("Ministerio de Educación Chile alimentación escolar", "MINEDUC"),
+    ("JUNAEB", "JUNAEB_PAE"),
+    ("Programa de Alimentación Escolar", "JUNAEB_PAE"),
+    ("alimentación escolar JUNAEB", "JUNAEB_PAE"),
+    ("JUNJI alimentación", "JUNJI_INTEGRA"),
+    ("Fundación Integra colación", "JUNJI_INTEGRA"),
+    ("MINEDUC suspensión clases", "MINEDUC"),
+    ("Ministerio de Educación Chile", "MINEDUC"),
 ]
 
 # Titulares recirculados / engañosos que no deben entrar al boletín
@@ -74,14 +74,23 @@ _MONTHS = {
 }
 
 
-def _google_news_rss(query: str, start: date, end: date) -> str:
-    """RSS con ventana after/before (before es exclusivo en Google News)."""
-    before = end + timedelta(days=1)
-    dated = f"{query} after:{start.isoformat()} before:{before.isoformat()}"
-    q = quote_plus(dated)
+def _bing_friendly_query(query: str) -> str:
+    """Bing no maneja bien operadores OR; usa el primer término útil."""
+    q = (query or "").strip()
+    if not q:
+        return q
+    q = q.replace('"', "")
+    if re.search(r"\sOR\s", q, flags=re.I):
+        q = re.split(r"\s+OR\s+", q, maxsplit=1, flags=re.I)[0].strip()
+    return q
+
+
+def _bing_news_rss(query: str) -> str:
+    """RSS de Bing News: suele traer URL del medio en el parámetro url=."""
+    q = quote_plus(f"{_bing_friendly_query(query)} Chile")
     return (
-        f"https://news.google.com/rss/search?q={q}"
-        f"&hl=es-419&gl=CL&ceid=CL:es-419"
+        f"https://www.bing.com/news/search?q={q}"
+        f"&format=rss&setlang=es-CL&cc=CL"
     )
 
 
@@ -90,6 +99,29 @@ def is_google_news_url(url: str) -> bool:
         return "news.google.com" in (urlparse(url).netloc or "").lower()
     except Exception:
         return "news.google.com" in (url or "").lower()
+
+
+def to_direct_url(url: str) -> str:
+    """Normaliza a URL directa del medio (Bing apiclick / Google News / ya directa)."""
+    if not url:
+        return ""
+    try:
+        parsed = urlparse(url)
+        host = (parsed.netloc or "").lower()
+        qs = parse_qs(parsed.query)
+
+        # Bing: .../news/apiclick.aspx?...&url=https%3a%2f%2fmedio.cl%2F...
+        if "bing.com" in host and "url" in qs:
+            direct = unquote(qs["url"][0])
+            if direct.startswith("http"):
+                return direct
+
+        if "news.google.com" in host:
+            return unwrap_google_news_url(url)
+
+        return url
+    except Exception:
+        return url
 
 
 def unwrap_google_news_url(url: str) -> str:
@@ -250,7 +282,7 @@ def _source_from_entry(entry: dict) -> str:
     if isinstance(source, dict) and source.get("title"):
         return str(source["title"]).strip()
     link = entry.get("link") or ""
-    host = urlparse(unwrap_google_news_url(link) or link).netloc
+    host = urlparse(to_direct_url(link) or link).netloc
     return host.replace("www.", "") if host else "Fuente desconocida"
 
 
@@ -303,9 +335,10 @@ def collect_articles(
     headers = {"User-Agent": USER_AGENT}
     with httpx.Client(headers=headers, timeout=25.0, follow_redirects=True) as client:
         for query, topic in search_queries:
-            feed_url = _google_news_rss(query, start, end)
+            # Bing News: links directos del medio (Google News suele dar 503 en Actions)
+            feed_url = _bing_news_rss(query)
             logger.info(
-                "Consultando feed (%s → %s): %s",
+                "Consultando Bing News (%s → %s): %s",
                 start.isoformat(),
                 end.isoformat(),
                 query,
@@ -316,12 +349,6 @@ def collect_articles(
                 for attempt in range(3):
                     try:
                         resp = client.get(feed_url)
-                        if resp.status_code == 503:
-                            raise httpx.HTTPStatusError(
-                                "503",
-                                request=resp.request,
-                                response=resp,
-                            )
                         resp.raise_for_status()
                         break
                     except Exception as exc:
@@ -349,20 +376,23 @@ def collect_articles(
                     break
                 title = (entry.get("title") or "").strip()
                 raw_link = (entry.get("link") or "").strip()
-                link = unwrap_google_news_url(raw_link)
-                if not title or not link or is_google_news_url(link):
-                    if raw_link and is_google_news_url(raw_link):
-                        logger.warning(
-                            "Sin link directo del medio, omitido: %s",
-                            title[:80] or raw_link[:60],
-                        )
+                link = to_direct_url(raw_link)
+                if not title or not link:
+                    continue
+                if is_google_news_url(link) or "bing.com" in (urlparse(link).netloc or "").lower():
+                    logger.warning(
+                        "Sin link directo del medio, omitido: %s",
+                        title[:80] or raw_link[:60],
+                    )
                     continue
                 if is_blocked_title(title):
                     logger.info("Titular en lista negra, omitido: %s", title[:80])
                     continue
 
                 rss_date = _parse_published(entry)
-                if rss_date and (rss_date < start or rss_date > end):
+                # Bing a veces marca fechas antiguas en RSS; no descartar aún:
+                # resolve_article_date validará con el cuerpo.
+                if rss_date and rss_date < start - timedelta(days=120):
                     continue
 
                 key = _normalize_title(title)
