@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "boletin-pae"
+version = "1.0.0"
+description = "Boletín semanal PAE / JUNAEB / MINEDUC con envío por Gmail y PDF"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "feedparser>=6.0.11",
+  "httpx>=0.27.0",
+  "beautifulsoup4>=4.12.0",
+  "lxml>=5.0.0",
+  "trafilatura>=1.12.0",
+  "pydantic>=2.7.0",
+  "pydantic-settings>=2.3.0",
+  "python-dotenv>=1.0.1",
+  "openai>=1.40.0",
+  "anthropic>=0.34.0",
+  "fpdf2>=2.7.9",
+  "tenacity>=8.5.0",
+  "tzdata>=2024.1",
+]
+
+[project.scripts]
+boletin = "boletin.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

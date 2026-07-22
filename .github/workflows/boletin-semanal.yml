@@ -1,0 +1,56 @@
+name: Boletín semanal PAE
+
+on:
+  schedule:
+    # Chile (America/Santiago): 07:30 = 10:30 UTC (verano) o 11:30 UTC (invierno).
+    # El script --scheduled solo continúa si es lunes 07:30–07:59 hora Chile.
+    - cron: "30 10 * * 1"
+    - cron: "30 11 * * 1"
+  workflow_dispatch:
+
+jobs:
+  generar-y-enviar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Ejecutar boletín
+        env:
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TZ: America/Santiago
+          SCHEDULE_HOUR: "7"
+          SCHEDULE_MINUTE: "30"
+          PYTHONPATH: src
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            python -m boletin --scheduled -v
+          else
+            python -m boletin -v
+          fi
+
+      - name: Subir artefactos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boletin-output
+          path: output/
+          if-no-files-found: ignore
+          retention-days: 90

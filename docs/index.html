@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Boletines · Raimundo Ibieta</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <p class="eyebrow">Archivo online</p>
+    <h1>Boletines semanales</h1>
+    <p class="lede">PDFs publicados automáticamente. Puedes abrirlos aquí o en Google Drive.</p>
+    <p class="meta" id="author-line"></p>
+  </header>
+
+  <main>
+    <div class="toolbar">
+      <label>
+        Temática
+        <select id="theme-filter">
+          <option value="all">Todas</option>
+        </select>
+      </label>
+      <p id="count" class="count"></p>
+    </div>
+    <section id="list" class="list" aria-live="polite"></section>
+    <p id="empty" class="empty hidden">Aún no hay boletines publicados.</p>
+  </main>
+
+  <footer>
+    <p>Generado desde el proyecto Boletines Informativos.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

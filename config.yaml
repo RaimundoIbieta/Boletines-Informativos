@@ -1,0 +1,90 @@
+# =============================================================================
+# Configuración del boletín — edita este archivo para personalizar
+# También puedes usar:  python -m boletin config ...
+# =============================================================================
+
+author_name: Raimundo Ibieta
+
+# Destinatarios (puedes agregar tantos como quieras)
+emails:
+  - raimundoibieta@gmail.com
+
+# Día y hora de envío (zona America/Santiago)
+# weekday: monday | tuesday | wednesday | thursday | friday | saturday | sunday
+schedule:
+  weekday: monday
+  hour: 7
+  minute: 30
+  timezone: America/Santiago
+
+# Temática activa (debe existir en themes abajo)
+active_theme: pae
+
+# --- Integraciones ---
+drive:
+  enabled: true
+  folder_name: Boletines Informativos
+
+github_pages:
+  enabled: true
+  publish_pdf: true
+
+# --- Temáticas disponibles ---
+themes:
+  pae:
+    id: pae
+    title: Inteligencia de ecosistema PAE
+    short_label: PAE / Educación Chile
+    audience: gerencias de empresas concesionarias del PAE
+    focus: >
+      JUNAEB y el Programa de Alimentación Escolar (PAE), JUNJI y Fundación Integra
+      (alimentación), MINEDUC (educación en Chile). Impacto en licitaciones, raciones,
+      normativa y oportunidades/riesgos para concesionarias.
+    queries:
+      - q: JUNAEB OR "Programa de Alimentación Escolar" OR PAE JUNAEB
+        topic: JUNAEB_PAE
+      - q: JUNAEB alimentación escolar Chile
+        topic: JUNAEB_PAE
+      - q: '"Programa de Alimentación Escolar" Chile'
+        topic: JUNAEB_PAE
+      - q: JUNJI alimentación OR colación OR comida
+        topic: JUNJI_INTEGRA
+      - q: '"Fundación Integra" alimentación OR colación'
+        topic: JUNJI_INTEGRA
+      - q: MINEDUC Chile educación OR subvención OR liceo
+        topic: MINEDUC
+      - q: Ministerio de Educación Chile alimentación escolar
+        topic: MINEDUC
+    analysis_axes:
+      - licitaciones / contratos / raciones
+      - normativa sanitaria y nutricional
+      - presupuesto fiscal y transferencias
+      - relación con JUNAEB, MINEDUC, JUNJI e Integra
+      - riesgos y oportunidades para concesionarias del PAE
+
+  economia:
+    id: economia
+    title: Boletín semanal de economía Chile
+    short_label: Economía Chile
+    audience: tomadores de decisión y analistas económicos
+    focus: >
+      Macroeconomía chilena, Banco Central, Hacienda, inflación, tipo de cambio,
+      empleo, reformas fiscales, mercados y empresas relevantes en Chile.
+    queries:
+      - q: economía Chile OR macroeconomía Chile
+        topic: MACRO
+      - q: Banco Central Chile OR TPM OR inflación Chile
+        topic: MACRO
+      - q: Ministerio de Hacienda Chile presupuesto OR reforma
+        topic: FISCAL
+      - q: IPSA OR bolsa Santiago OR mercados Chile
+        topic: MERCADOS
+      - q: empleo Chile OR desempleo OR INE Chile
+        topic: LABORAL
+      - q: cobre Chile OR exportaciones Chile
+        topic: COMEX
+    analysis_axes:
+      - impacto macro y fiscal
+      - señal de política monetaria / cambiaria
+      - riesgos para empresas e inversionistas
+      - oportunidades de negocio o posicionamiento
