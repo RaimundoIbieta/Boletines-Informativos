@@ -47,3 +47,14 @@ No depende de tu Mac. GitHub revisa cada 30 minutos y envía los boletines cuya 
 2. Botón **Probar envío**: guarda y encola una prueba (GitHub la manda en ≤10 min)  
 3. GitHub Actions también envía en el día/hora programados  
 4. Si cambias de Mac o se apaga, **no pasa nada**
+
+## 5. Sugerir búsquedas y ejes con IA (opcional)
+
+En el editor de boletín, el botón **Sugerir búsquedas y ejes con IA** rellena esas dos secciones a partir del título/enfoque. El usuario puede editar, borrar o agregar líneas.
+
+Para que use Gemini (y no solo el generador local):
+
+1. Instala CLI: https://supabase.com/docs/guides/cli  
+2. `supabase login` y `supabase link --project-ref ryznnccmqyvujrlhriml`  
+3. `supabase secrets set GEMINI_API_KEY=tu_clave`  
+4. `supabase functions deploy suggest-bulletin`

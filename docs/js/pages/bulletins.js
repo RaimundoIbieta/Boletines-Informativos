@@ -14,6 +14,11 @@ import {
 } from '../auth.js';
 import { navigate } from '../router.js';
 import { isPaeBulletin } from '../paeTemplate.js';
+import {
+  suggestBulletinFields,
+  formatQueries,
+  formatAxes,
+} from '../suggestFields.js';
 
 const DAYS = [
   ['monday', 'Lunes'],
@@ -148,6 +153,10 @@ export async function renderBulletinEditor(container, id) {
       <input id="audience" value="${b?.audience || ''}" placeholder="gerentes y analistas" />
       <label>Enfoque</label>
       <textarea id="focus" placeholder="Qué debe cubrir el análisis...">${b?.focus || ''}</textarea>
+      <div class="btn-row" style="margin:4px 0 12px">
+        <button type="button" class="btn btn-secondary" id="suggest-ai">Sugerir búsquedas y ejes con IA</button>
+      </div>
+      <p class="muted" style="margin-top:-6px;margin-bottom:12px">Completa título/etiqueta/enfoque y pulsa el botón. Puedes editar, borrar o agregar líneas después.</p>
       <label>Búsquedas web (una por línea: consulta | TEMA)</label>
       <textarea id="queries" placeholder="cobre Chile OR Codelco | MINERIA">${queriesToText(b?.queries)}</textarea>
       <label>Ejes de análisis (uno por línea)</label>
@@ -195,6 +204,41 @@ export async function renderBulletinEditor(container, id) {
     await setRecipients(saved.id, emails);
     return saved;
   }
+
+  container.querySelector('#suggest-ai').onclick = async () => {
+    const err = container.querySelector('#err');
+    const ok = container.querySelector('#ok');
+    const btn = container.querySelector('#suggest-ai');
+    const qEl = container.querySelector('#queries');
+    const aEl = container.querySelector('#axes');
+    err.textContent = '';
+    ok.textContent = '';
+    const hasContent = qEl.value.trim() || aEl.value.trim();
+    if (hasContent && !confirm('¿Reemplazar las búsquedas y ejes actuales con la sugerencia de IA?')) {
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Generando…';
+    try {
+      const suggestion = await suggestBulletinFields({
+        title: container.querySelector('#title').value,
+        short_label: container.querySelector('#short_label').value,
+        audience: container.querySelector('#audience').value,
+        focus: container.querySelector('#focus').value,
+      });
+      qEl.value = formatQueries(suggestion.queries);
+      aEl.value = formatAxes(suggestion.analysis_axes);
+      ok.textContent =
+        suggestion.source === 'gemini'
+          ? 'Base sugerida con IA. Edítala libremente antes de guardar.'
+          : 'Base sugerida (modo local). Edítala libremente; cuando la función en la nube esté activa usará Gemini.';
+    } catch (e) {
+      err.textContent = e.message || String(e);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Sugerir búsquedas y ejes con IA';
+    }
+  };
 
   container.querySelector('#save').onclick = async () => {
     const err = container.querySelector('#err');
