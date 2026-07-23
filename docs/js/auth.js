@@ -299,12 +299,26 @@ export async function requestTestSend(bulletinId) {
   if (!u) throw new Error('Sin sesión');
   const { data: pending } = await client()
     .from('send_requests')
-    .select('id')
+    .select('id,created_at')
     .eq('bulletin_id', bulletinId)
     .eq('status', 'pending')
     .limit(1);
   if (pending?.length) {
-    return { id: pending[0].id, already: true };
+    const created = new Date(pending[0].created_at).getTime();
+    const ageMin = (Date.now() - created) / 60000;
+    // Si lleva >12 min, liberar cola y crear una nueva (el cron a veces se atrasa)
+    if (ageMin > 12) {
+      await client()
+        .from('send_requests')
+        .update({
+          status: 'error',
+          error: 'Caducada sin procesar; se solicitó una nueva prueba.',
+          processed_at: new Date().toISOString(),
+        })
+        .eq('id', pending[0].id);
+    } else {
+      return { id: pending[0].id, already: true, ageMin: Math.round(ageMin) };
+    }
   }
   const { data, error } = await client()
     .from('send_requests')

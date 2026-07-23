@@ -303,8 +303,8 @@ export async function renderBulletinEditor(container, id) {
       const saved = await saveBulletin({ requireEmails: true });
       const req = await requestTestSend(saved.id);
       ok.textContent = req.already
-        ? 'Ya hay una prueba en cola. En unos minutos llegará el correo de prueba a los destinatarios.'
-        : 'Prueba solicitada. En unos minutos (máx. ~10) se genera y envía el boletín de prueba a los correos guardados (periodo: lunes semana pasada → hoy).';
+        ? `Ya hay una prueba en cola (~${req.ageMin || 0} min). GitHub Actions la procesa cada ~10 min; revisa bandeja/spam de los destinatarios.`
+        : 'Prueba solicitada. En unos minutos (máx. ~10–15) se genera y envía el boletín a los correos guardados. Revisa bandeja y spam.';
       if (isNew) navigate(`#/boletin/${saved.id}`);
     } catch (e) {
       err.textContent = e.message;
