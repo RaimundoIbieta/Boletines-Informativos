@@ -48,6 +48,15 @@ function queriesToText(queries) {
   return (queries || []).map((x) => `${x.q || x[0]} | ${x.topic || x[1] || 'GENERAL'}`).join('\n');
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function readForm(container, { requireEmails = false } = {}) {
   const payload = {
     title: container.querySelector('#title').value.trim(),
@@ -146,21 +155,23 @@ export async function renderBulletinEditor(container, id) {
     }</p>
     <div class="card">
       <label>Título</label>
-      <input id="title" value="${b?.title || ''}" placeholder="Boletín semanal minería Chile" />
+      <input id="title" value="${escapeHtml(b?.title || '')}" placeholder="Boletín semanal minería Chile" />
       <label>Etiqueta corta</label>
-      <input id="short_label" value="${b?.short_label || ''}" placeholder="Minería Chile" />
+      <input id="short_label" value="${escapeHtml(b?.short_label || '')}" placeholder="Minería Chile" />
       <label>Audiencia</label>
-      <input id="audience" value="${b?.audience || ''}" placeholder="gerentes y analistas" />
+      <input id="audience" value="${escapeHtml(b?.audience || '')}" placeholder="gerentes y analistas" />
       <label>Enfoque</label>
-      <textarea id="focus" placeholder="Qué debe cubrir el análisis...">${b?.focus || ''}</textarea>
+      <textarea id="focus" placeholder="Qué debe cubrir el análisis...">${escapeHtml(b?.focus || '')}</textarea>
       <p class="muted" id="suggest-hint" style="margin:6px 0 12px">
         Al completar título/etiqueta/enfoque, las búsquedas y ejes se rellenan solos. Luego puedes editarlos, borrarlos o agregar líneas.
-        <button type="button" class="btn btn-secondary" id="suggest-ai" style="margin-left:8px;padding:6px 10px;font-size:.8rem">Regenerar</button>
       </p>
+      <div class="btn-row" style="margin:0 0 12px">
+        <button type="button" class="btn btn-secondary" id="suggest-ai" style="padding:6px 10px;font-size:.8rem">Regenerar sugerencia</button>
+      </div>
       <label>Búsquedas web (una por línea: consulta | TEMA)</label>
-      <textarea id="queries" placeholder="cobre Chile OR Codelco | MINERIA">${queriesToText(b?.queries)}</textarea>
+      <textarea id="queries" placeholder="cobre Chile OR Codelco | MINERIA">${escapeHtml(queriesToText(b?.queries))}</textarea>
       <label>Ejes de análisis (uno por línea)</label>
-      <textarea id="axes">${(b?.analysis_axes || []).join('\n')}</textarea>
+      <textarea id="axes">${escapeHtml((b?.analysis_axes || []).join('\n'))}</textarea>
       <div class="grid grid-3">
         <div>
           <label>Día</label>
@@ -181,14 +192,14 @@ export async function renderBulletinEditor(container, id) {
         </div>
       </div>
       <label>Correos destinatarios (uno por línea)</label>
-      <textarea id="emails" placeholder="tu@correo.cl">${recipients}</textarea>
+      <textarea id="emails" placeholder="tu@correo.cl">${escapeHtml(recipients)}</textarea>
       <label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-size:.95rem">
         <input id="active" type="checkbox" ${(b?.active ?? true) ? 'checked' : ''} /> Activo
       </label>
       <div class="btn-row">
-        <button class="btn" id="save">Guardar</button>
-        <button class="btn btn-secondary" id="test">Probar envío</button>
-        ${!isNew ? `<button class="btn btn-danger" id="del">Eliminar</button>` : ''}
+        <button type="button" class="btn" id="save">Guardar</button>
+        <button type="button" class="btn btn-secondary" id="test">Probar envío</button>
+        ${!isNew ? `<button type="button" class="btn btn-danger" id="del">Eliminar</button>` : ''}
         <a class="btn btn-secondary" href="#/app">Volver</a>
       </div>
       <p class="error" id="err"></p>
@@ -283,14 +294,21 @@ export async function renderBulletinEditor(container, id) {
   container.querySelector('#suggest-ai').onclick = () => runSuggest({ force: true });
 
   container.querySelector('#save').onclick = async () => {
+    const btn = container.querySelector('#save');
     err.textContent = '';
     ok.textContent = '';
+    btn.disabled = true;
+    const prev = btn.textContent;
+    btn.textContent = 'Guardando…';
     try {
       const saved = await saveBulletin();
-      ok.textContent = 'Guardado.';
-      navigate(`#/boletin/${saved.id}`);
+      ok.textContent = 'Guardado correctamente.';
+      if (isNew) navigate(`#/boletin/${saved.id}`);
     } catch (e) {
-      err.textContent = e.message;
+      err.textContent = e.message || String(e);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = prev;
     }
   };
 
