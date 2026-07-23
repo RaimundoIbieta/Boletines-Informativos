@@ -153,10 +153,10 @@ export async function renderBulletinEditor(container, id) {
       <input id="audience" value="${b?.audience || ''}" placeholder="gerentes y analistas" />
       <label>Enfoque</label>
       <textarea id="focus" placeholder="Qué debe cubrir el análisis...">${b?.focus || ''}</textarea>
-      <div class="btn-row" style="margin:4px 0 12px">
-        <button type="button" class="btn btn-secondary" id="suggest-ai">Sugerir búsquedas y ejes con IA</button>
-      </div>
-      <p class="muted" style="margin-top:-6px;margin-bottom:12px">Completa título/etiqueta/enfoque y pulsa el botón. Puedes editar, borrar o agregar líneas después.</p>
+      <p class="muted" id="suggest-hint" style="margin:6px 0 12px">
+        Al completar título/etiqueta/enfoque, las búsquedas y ejes se rellenan solos. Luego puedes editarlos, borrarlos o agregar líneas.
+        <button type="button" class="btn btn-secondary" id="suggest-ai" style="margin-left:8px;padding:6px 10px;font-size:.8rem">Regenerar</button>
+      </p>
       <label>Búsquedas web (una por línea: consulta | TEMA)</label>
       <textarea id="queries" placeholder="cobre Chile OR Codelco | MINERIA">${queriesToText(b?.queries)}</textarea>
       <label>Ejes de análisis (uno por línea)</label>
@@ -205,44 +205,84 @@ export async function renderBulletinEditor(container, id) {
     return saved;
   }
 
-  container.querySelector('#suggest-ai').onclick = async () => {
-    const err = container.querySelector('#err');
-    const ok = container.querySelector('#ok');
+  const qEl = container.querySelector('#queries');
+  const aEl = container.querySelector('#axes');
+  const ok = container.querySelector('#ok');
+  const err = container.querySelector('#err');
+  const hint = container.querySelector('#suggest-hint');
+  let userEditedFields = false;
+  let lastSuggestKey = '';
+  let suggestTimer = null;
+  let suggesting = false;
+
+  qEl.addEventListener('input', () => {
+    userEditedFields = true;
+  });
+  aEl.addEventListener('input', () => {
+    userEditedFields = true;
+  });
+
+  async function runSuggest({ force = false } = {}) {
+    const input = {
+      title: container.querySelector('#title').value.trim(),
+      short_label: container.querySelector('#short_label').value.trim(),
+      audience: container.querySelector('#audience').value.trim(),
+      focus: container.querySelector('#focus').value.trim(),
+    };
+    if (!input.title && !input.short_label && !input.focus) return;
+    // Esperar al menos título o etiqueta + algo de contexto
+    if (!(input.title || input.short_label)) return;
+
+    const key = JSON.stringify(input);
+    if (!force && key === lastSuggestKey) return;
+    if (!force && userEditedFields && (qEl.value.trim() || aEl.value.trim())) return;
+    if (!force && qEl.value.trim() && aEl.value.trim()) return;
+
+    if (suggesting) return;
+    suggesting = true;
     const btn = container.querySelector('#suggest-ai');
-    const qEl = container.querySelector('#queries');
-    const aEl = container.querySelector('#axes');
-    err.textContent = '';
-    ok.textContent = '';
-    const hasContent = qEl.value.trim() || aEl.value.trim();
-    if (hasContent && !confirm('¿Reemplazar las búsquedas y ejes actuales con la sugerencia de IA?')) {
-      return;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Generando…';
     }
-    btn.disabled = true;
-    btn.textContent = 'Generando…';
+    if (hint) hint.style.opacity = '0.7';
+    err.textContent = '';
     try {
-      const suggestion = await suggestBulletinFields({
-        title: container.querySelector('#title').value,
-        short_label: container.querySelector('#short_label').value,
-        audience: container.querySelector('#audience').value,
-        focus: container.querySelector('#focus').value,
-      });
+      const suggestion = await suggestBulletinFields(input);
       qEl.value = formatQueries(suggestion.queries);
       aEl.value = formatAxes(suggestion.analysis_axes);
+      lastSuggestKey = key;
+      userEditedFields = false;
       ok.textContent =
         suggestion.source === 'gemini'
-          ? 'Base sugerida con IA. Edítala libremente antes de guardar.'
-          : 'Base sugerida (modo local). Edítala libremente; cuando la función en la nube esté activa usará Gemini.';
+          ? 'Búsquedas y ejes rellenados con IA. Puedes editarlos libremente.'
+          : 'Búsquedas y ejes rellenados automáticamente. Puedes editarlos libremente.';
     } catch (e) {
-      err.textContent = e.message || String(e);
+      if (force) err.textContent = e.message || String(e);
     } finally {
-      btn.disabled = false;
-      btn.textContent = 'Sugerir búsquedas y ejes con IA';
+      suggesting = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Regenerar';
+      }
+      if (hint) hint.style.opacity = '1';
     }
-  };
+  }
+
+  function scheduleSuggest() {
+    clearTimeout(suggestTimer);
+    suggestTimer = setTimeout(() => runSuggest({ force: false }), 650);
+  }
+
+  for (const sel of ['#title', '#short_label', '#audience', '#focus']) {
+    const el = container.querySelector(sel);
+    el.addEventListener('input', scheduleSuggest);
+    el.addEventListener('blur', () => runSuggest({ force: false }));
+  }
+
+  container.querySelector('#suggest-ai').onclick = () => runSuggest({ force: true });
 
   container.querySelector('#save').onclick = async () => {
-    const err = container.querySelector('#err');
-    const ok = container.querySelector('#ok');
     err.textContent = '';
     ok.textContent = '';
     try {
@@ -255,8 +295,6 @@ export async function renderBulletinEditor(container, id) {
   };
 
   container.querySelector('#test').onclick = async () => {
-    const err = container.querySelector('#err');
-    const ok = container.querySelector('#ok');
     const btn = container.querySelector('#test');
     err.textContent = '';
     ok.textContent = '';
