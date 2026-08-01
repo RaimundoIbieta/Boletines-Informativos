@@ -245,7 +245,7 @@ def _run_web_bulletins(
         ctx = runtime_for_bulletin(base_ctx, remote)
         if scheduled and not should_run_scheduled(ctx):
             logging.info(
-                "Omitido %s (fuera de ventana %s %02d:%02d)",
+                "Omitido %s (aún no toca: %s %02d:%02d)",
                 remote.short_label,
                 remote.schedule_weekday,
                 remote.schedule_hour,
@@ -309,7 +309,7 @@ def _run_web_bulletins(
         ran += 1
 
     if scheduled and ran == 0:
-        logging.info("Ningún boletín web due en esta ventana.")
+        logging.info("Ningún boletín web pendiente de envío ahora.")
     elif ran == 0:
         logging.warning("No se ejecutó ningún boletín.")
         return 1

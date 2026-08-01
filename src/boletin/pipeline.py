@@ -17,7 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 def should_run_scheduled(ctx: RuntimeContext, now: datetime | None = None) -> bool:
-    """True si cae en el día/hora configurados (ventana de 30 minutos)."""
+    """True si hoy es el día programado y ya pasó la hora configurada.
+
+    No usa una ventana corta: GitHub Actions a veces corre con retraso y
+    perdía el envío. El anti-duplicado lo hacen los markers / bulletin_runs.
+    """
     now = now or datetime.now(ctx.timezone)
     if now.tzinfo is None:
         now = now.replace(tzinfo=ctx.timezone)
@@ -28,7 +32,7 @@ def should_run_scheduled(ctx: RuntimeContext, now: datetime | None = None) -> bo
         return False
     target = ctx.schedule_hour * 60 + ctx.schedule_minute
     current = now.hour * 60 + now.minute
-    return target <= current < target + 30
+    return current >= target
 
 
 def run_boletin(

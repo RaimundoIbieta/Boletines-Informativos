@@ -16,8 +16,8 @@ SCRIPT = ROOT / "scripts" / "run_boletin.sh"
 def sync_launch_agent() -> Path:
     """Regenera el LaunchAgent.
 
-    Con Supabase: cada 30 min ejecuta `run --scheduled` y solo envía los
-    boletines cuya frecuencia (día/hora) cae en la ventana.
+    Con Supabase: cada 30 min ejecuta `run --scheduled` y envía los
+    boletines cuyo día ya llegó y cuya hora ya pasó (anti-duplicado por markers).
     Sin Supabase: un disparo semanal según config.yaml.
     """
     ctx = get_runtime()

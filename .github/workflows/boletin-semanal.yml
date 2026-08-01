@@ -1,8 +1,8 @@
 name: Envío de boletines (nube)
 
 # Corre en la nube: no depende de tu Mac.
-# Cada 30 min (UTC) revisa qué boletines de Supabase toca enviar
-# según día/hora Chile de cada uno.
+# Cada ~10 min (UTC) revisa boletines de Supabase. Si hoy es su día y
+# ya pasó la hora Chile, los envía (sin ventana corta de 30 min).
 
 on:
   schedule:
