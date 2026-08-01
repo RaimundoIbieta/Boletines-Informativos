@@ -30,6 +30,34 @@ const DAYS = [
   ['sunday', 'Domingo'],
 ];
 
+function isoDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Misma lógica que el motor: semana previa lun–dom, o últimos N días hasta ayer. */
+function computePeriodBounds(mode, days, reference = new Date()) {
+  const today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate());
+  const weekday = (today.getDay() + 6) % 7; // lunes=0
+  if (mode === 'last_n_days') {
+    const n = Math.max(1, Math.min(31, Number(days) || 7));
+    const end = new Date(today);
+    end.setDate(end.getDate() - 1);
+    const start = new Date(end);
+    start.setDate(start.getDate() - (n - 1));
+    return { start: isoDate(start), end: isoDate(end) };
+  }
+  const thisMonday = new Date(today);
+  thisMonday.setDate(thisMonday.getDate() - weekday);
+  const start = new Date(thisMonday);
+  start.setDate(start.getDate() - 7);
+  const end = new Date(thisMonday);
+  end.setDate(end.getDate() - 1);
+  return { start: isoDate(start), end: isoDate(end) };
+}
+
 function parseQueries(text) {
   return text
     .split('\n')
@@ -72,6 +100,8 @@ function readForm(container, { requireEmails = false } = {}) {
     schedule_weekday: container.querySelector('#weekday').value,
     schedule_hour: Number(container.querySelector('#hour').value),
     schedule_minute: Number(container.querySelector('#minute').value),
+    period_mode: container.querySelector('#period_mode').value,
+    period_days: Number(container.querySelector('#period_days').value) || 7,
     active: container.querySelector('#active').checked,
   };
   const emails = container
@@ -147,6 +177,9 @@ export async function renderBulletinEditor(container, id) {
   if (!isNew) b = await getBulletin(id);
 
   const recipients = (b?.bulletin_recipients || []).map((r) => r.email).join('\n');
+  const periodMode = b?.period_mode || 'previous_week';
+  const periodDays = b?.period_days ?? 7;
+  const defaultPeriod = computePeriodBounds(periodMode, periodDays);
 
   container.innerHTML = `
     <h1 class="page-title">${isNew ? 'Nuevo boletín' : 'Editar boletín'}</h1>
@@ -174,7 +207,7 @@ export async function renderBulletinEditor(container, id) {
       <textarea id="axes">${escapeHtml((b?.analysis_axes || []).join('\n'))}</textarea>
       <div class="grid grid-3">
         <div>
-          <label>Día</label>
+          <label>Día de envío</label>
           <select id="weekday">
             ${DAYS.map(
               ([k, lab]) =>
@@ -189,6 +222,35 @@ export async function renderBulletinEditor(container, id) {
         <div>
           <label>Minuto</label>
           <input id="minute" type="number" min="0" max="59" value="${b?.schedule_minute ?? 30}" />
+        </div>
+      </div>
+      <label style="margin-top:12px">Periodo de selección de noticias</label>
+      <p class="muted" style="margin:4px 0 10px">Define qué rango de fechas se busca en cada envío programado. En prueba puedes ajustar las fechas abajo.</p>
+      <div class="grid grid-3">
+        <div>
+          <label>Modo</label>
+          <select id="period_mode">
+            <option value="previous_week" ${periodMode === 'previous_week' ? 'selected' : ''}>Semana previa (lun–dom)</option>
+            <option value="last_n_days" ${periodMode === 'last_n_days' ? 'selected' : ''}>Últimos N días</option>
+          </select>
+        </div>
+        <div id="period-days-wrap" style="${periodMode === 'last_n_days' ? '' : 'display:none'}">
+          <label>Días (N)</label>
+          <input id="period_days" type="number" min="1" max="31" value="${periodDays}" />
+        </div>
+        <div></div>
+      </div>
+      <div class="grid grid-3" style="margin-top:8px">
+        <div>
+          <label>Desde (prueba)</label>
+          <input id="period_start" type="date" value="${defaultPeriod.start}" />
+        </div>
+        <div>
+          <label>Hasta (prueba)</label>
+          <input id="period_end" type="date" value="${defaultPeriod.end}" />
+        </div>
+        <div style="display:flex;align-items:flex-end">
+          <button type="button" class="btn btn-secondary" id="period-reset" style="padding:8px 10px;font-size:.8rem">Usar modo</button>
         </div>
       </div>
       <label>Correos destinatarios (uno por línea)</label>
@@ -210,11 +272,37 @@ export async function renderBulletinEditor(container, id) {
   async function saveBulletin({ requireEmails = false } = {}) {
     const { payload, emails } = readForm(container, { requireEmails });
     let saved;
-    if (isNew) saved = await createBulletin(payload);
-    else saved = await updateBulletin(id, payload);
+    try {
+      if (isNew) saved = await createBulletin(payload);
+      else saved = await updateBulletin(id, payload);
+    } catch (e) {
+      const msg = e.message || String(e);
+      if (/period_mode|period_days|schema cache|column/i.test(msg)) {
+        throw new Error(
+          'Falta el SQL de periodo en Supabase. Ejecuta supabase/period_selection.sql y vuelve a guardar.'
+        );
+      }
+      throw e;
+    }
     await setRecipients(saved.id, emails);
     return saved;
   }
+
+  function syncPeriodDatesFromMode() {
+    const mode = container.querySelector('#period_mode').value;
+    const days = container.querySelector('#period_days').value;
+    const wrap = container.querySelector('#period-days-wrap');
+    if (wrap) wrap.style.display = mode === 'last_n_days' ? '' : 'none';
+    const bounds = computePeriodBounds(mode, days);
+    container.querySelector('#period_start').value = bounds.start;
+    container.querySelector('#period_end').value = bounds.end;
+  }
+
+  container.querySelector('#period_mode').onchange = syncPeriodDatesFromMode;
+  container.querySelector('#period_days').oninput = () => {
+    if (container.querySelector('#period_mode').value === 'last_n_days') syncPeriodDatesFromMode();
+  };
+  container.querySelector('#period-reset').onclick = syncPeriodDatesFromMode;
 
   const qEl = container.querySelector('#queries');
   const aEl = container.querySelector('#axes');
@@ -318,11 +406,18 @@ export async function renderBulletinEditor(container, id) {
     ok.textContent = '';
     btn.disabled = true;
     try {
+      const start = container.querySelector('#period_start').value;
+      const end = container.querySelector('#period_end').value;
+      if (!start || !end) throw new Error('Indica el periodo Desde / Hasta para la prueba.');
+      if (end < start) throw new Error('La fecha Hasta no puede ser anterior a Desde.');
       const saved = await saveBulletin({ requireEmails: true });
-      const req = await requestTestSend(saved.id);
+      const req = await requestTestSend(saved.id, {
+        periodo_inicio: start,
+        periodo_fin: end,
+      });
       ok.textContent = req.already
         ? `Ya hay una prueba en cola (~${req.ageMin || 0} min). GitHub Actions la procesa cada ~10 min; revisa bandeja/spam de los destinatarios.`
-        : 'Prueba solicitada. En unos minutos (máx. ~10–15) se genera y envía el boletín a los correos guardados. Revisa bandeja y spam.';
+        : `Prueba solicitada (${start} → ${end}). En unos minutos (máx. ~10–15) se genera y envía el boletín. Revisa bandeja y spam.`;
       if (isNew) navigate(`#/boletin/${saved.id}`);
     } catch (e) {
       err.textContent = e.message;

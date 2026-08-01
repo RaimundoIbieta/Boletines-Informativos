@@ -28,6 +28,8 @@ class RemoteBulletin:
     schedule_minute: int
     emails: list[str]
     active: bool = True
+    period_mode: str = "previous_week"
+    period_days: int = 7
 
     def theme_id(self) -> str:
         slug = re.sub(r"[^a-z0-9]+", "_", (self.short_label or "boletin").lower()).strip("_")
@@ -121,6 +123,8 @@ def _from_row(row: dict[str, Any]) -> RemoteBulletin:
         schedule_minute=int(row.get("schedule_minute") if row.get("schedule_minute") is not None else 30),
         emails=emails,
         active=bool(row.get("active", True)),
+        period_mode=str(row.get("period_mode") or "previous_week").lower(),
+        period_days=int(row.get("period_days") if row.get("period_days") is not None else 7),
     )
 
 
@@ -159,6 +163,8 @@ def runtime_for_bulletin(base: RuntimeContext, remote: RemoteBulletin) -> Runtim
             hour=remote.schedule_hour,
             minute=remote.schedule_minute,
             timezone=base.app.schedule.timezone,
+            period_mode=remote.period_mode or "previous_week",
+            period_days=remote.period_days or 7,
         ),
         active_theme=theme.id,
         drive=base.app.drive,
@@ -199,19 +205,19 @@ def fetch_pending_send_requests(secrets: Settings) -> list[dict[str, Any]]:
     base = secrets.supabase_url.rstrip("/")
     headers = _auth_headers(secrets)
     with httpx.Client(timeout=30.0) as client:
-        resp = client.get(
-            f"{base}/rest/v1/send_requests",
-            headers=headers,
-            params={
-                "status": "eq.pending",
-                "select": "id,bulletin_id,user_id,created_at",
-                "order": "created_at.asc",
-                "limit": "20",
-            },
-        )
+        params = {
+            "status": "eq.pending",
+            "select": "id,bulletin_id,user_id,created_at,periodo_inicio,periodo_fin",
+            "order": "created_at.asc",
+            "limit": "20",
+        }
+        resp = client.get(f"{base}/rest/v1/send_requests", headers=headers, params=params)
         if resp.status_code == 404:
             logger.warning("Tabla send_requests no existe; ejecuta supabase/send_requests.sql")
             return []
+        if resp.status_code >= 400 and "periodo" in (resp.text or "").lower():
+            params["select"] = "id,bulletin_id,user_id,created_at"
+            resp = client.get(f"{base}/rest/v1/send_requests", headers=headers, params=params)
         resp.raise_for_status()
         return resp.json() or []
 

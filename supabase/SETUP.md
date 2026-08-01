@@ -4,7 +4,7 @@
 
 1. https://supabase.com/dashboard/project/ryznnccmqyvujrlhriml/sql/new  
 2. Ejecuta `schema.sql`  
-3. Si aplica: `update_prices.sql`, `seed_pae.sql` y **`send_requests.sql`** (botón Probar envío)
+3. Si aplica: `update_prices.sql`, `seed_pae.sql`, **`send_requests.sql`** (botón Probar envío) y **`period_selection.sql`** (rango de noticias configurable)
 
 ## 2. Auth
 

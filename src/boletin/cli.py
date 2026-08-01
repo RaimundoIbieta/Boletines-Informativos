@@ -157,19 +157,13 @@ def _process_test_requests(
     fetch_bulletin_by_id,
     update_send_request,
 ) -> int:
-    from datetime import timedelta
-
     from boletin.supabase_store import runtime_for_bulletin
 
     pending = fetch_pending_send_requests(base_ctx.secrets)
     if not pending:
         return 0
 
-    # Prueba: desde el lunes de la semana pasada hasta hoy (no solo la semana cerrada)
     today = reference or date.today()
-    this_monday = today - timedelta(days=today.weekday())
-    test_start = this_monday - timedelta(days=7)
-    test_end = today
 
     done = 0
     for req in pending:
@@ -183,6 +177,18 @@ def _process_test_requests(
             ctx = runtime_for_bulletin(base_ctx, remote)
             if send:
                 ctx.secrets.validate_for_send(ctx.emails)
+
+            # Prioridad: fechas explícitas en la solicitud; si no, config del boletín
+            req_start = req.get("periodo_inicio")
+            req_end = req.get("periodo_fin")
+            if req_start and req_end:
+                test_start = date.fromisoformat(str(req_start)[:10])
+                test_end = date.fromisoformat(str(req_end)[:10])
+                if test_end < test_start:
+                    raise RuntimeError("periodo_fin anterior a periodo_inicio.")
+            else:
+                test_start, test_end = ctx.period_bounds(today)
+
             logging.info(
                 "Prueba web «%s» → %s | periodo %s→%s",
                 remote.title,

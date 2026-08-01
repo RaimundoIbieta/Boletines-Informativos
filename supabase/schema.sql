@@ -55,6 +55,11 @@ create table if not exists public.bulletins (
   schedule_weekday text not null default 'monday',
   schedule_hour int not null default 7,
   schedule_minute int not null default 30,
+  -- previous_week = lunes–domingo previos al envío; last_n_days = N días hasta el día anterior
+  period_mode text not null default 'previous_week'
+    check (period_mode in ('previous_week', 'last_n_days')),
+  period_days int not null default 7
+    check (period_days >= 1 and period_days <= 31),
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -193,6 +198,8 @@ create table if not exists public.send_requests (
   status text not null default 'pending'
     check (status in ('pending', 'running', 'done', 'error')),
   error text,
+  periodo_inicio date,
+  periodo_fin date,
   created_at timestamptz not null default now(),
   processed_at timestamptz
 );

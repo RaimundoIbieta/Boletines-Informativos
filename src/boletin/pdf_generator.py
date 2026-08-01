@@ -8,7 +8,7 @@ from pathlib import Path
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
-from boletin.formatter import _tema_label
+from boletin.formatter import _tema_label, safe_http_url
 from boletin.models import BoletinSemanal, NoticiaAnalizada
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ class BoletinPDF(FPDF):
         self.set_xy(16, 2)
         self.set_font("DejaVu", "", 7.5)
         self.set_text_color(*WHITE)
-        self.cell(110, 5, f"Boletín PAE · {self._author_name}", align="L")
+        self.cell(110, 5, f"{self._author_name}", align="L")
         self.cell(0, 5, self._periodo_label, align="R")
         self.set_y(14)
 
@@ -164,14 +164,15 @@ def _draw_cover(pdf: BoletinPDF, boletin: BoletinSemanal) -> None:
     pdf.set_y(60)
     _reset(pdf)
 
-    # Intro breve
+    # Intro breve según temática del boletín (no hardcodear PAE)
+    intro = (boletin.theme_label or boletin.theme_title or "temática").strip()
     pdf.set_font("DejaVu", "", 9)
     pdf.set_text_color(*MUTED)
     pdf.multi_cell(
         0,
         5,
-        "Selección de noticias relevantes para el Programa de Alimentación Escolar y "
-        "empresas concesionarias: impacto normativo, riesgos operativos y oportunidades comerciales.",
+        f"Selección de noticias relevantes para {intro}: "
+        "hechos distintos de la semana, con riesgos y oportunidades accionables.",
     )
     pdf.ln(4)
     _reset(pdf)
@@ -271,7 +272,8 @@ def _draw_noticia(pdf: BoletinPDF, idx: int, n: NoticiaAnalizada) -> None:
     pdf.set_font("DejaVu", "B", 8.5)
     pdf.set_text_color(*TEAL)
     label = _short_link_label(n.link)
-    pdf.cell(pdf.get_string_width(label) + 1, 5, label, link=n.link)
+    href = safe_http_url(n.link)
+    pdf.cell(pdf.get_string_width(label) + 1, 5, label, link=href)
     pdf.ln(4)
 
     old_l = pdf.l_margin
@@ -291,7 +293,7 @@ def _draw_noticia(pdf: BoletinPDF, idx: int, n: NoticiaAnalizada) -> None:
     _reset(pdf)
 
 
-def _draw_sintesis(pdf: BoletinPDF, texto: str) -> None:
+def _draw_sintesis(pdf: BoletinPDF, texto: str, *, title: str) -> None:
     if pdf.get_y() > pdf.h - pdf.b_margin - 50:
         pdf.add_page()
         _reset(pdf)
@@ -316,7 +318,11 @@ def _draw_sintesis(pdf: BoletinPDF, texto: str) -> None:
     pdf.set_xy(x + 6, y + 4)
     pdf.set_font("DejaVu", "B", 11)
     pdf.set_text_color(*TEAL)
-    pdf.cell(0, 6, "Síntesis semanal del ecosistema PAE / concesionarias")
+    heading = title.strip() or "Síntesis semanal"
+    # Evita títulos kilométricos en el recuadro
+    if len(heading) > 70:
+        heading = heading[:67].rstrip() + "…"
+    pdf.cell(0, 6, heading)
 
     pdf.set_xy(x + 6, y + 12)
     pdf.set_font("DejaVu", "", 9.5)
@@ -347,7 +353,11 @@ def generate_pdf(
     for i, n in enumerate(boletin.noticias, start=1):
         _draw_noticia(pdf, i, n)
 
-    _draw_sintesis(pdf, boletin.sintesis.strip())
+    _draw_sintesis(
+        pdf,
+        boletin.sintesis.strip(),
+        title=f"Síntesis semanal · {boletin.theme_label or boletin.theme_title}",
+    )
 
     pdf.output(str(path))
     return path

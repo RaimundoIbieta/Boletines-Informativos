@@ -8,9 +8,17 @@ create table if not exists public.send_requests (
   status text not null default 'pending'
     check (status in ('pending', 'running', 'done', 'error')),
   error text,
+  periodo_inicio date,
+  periodo_fin date,
   created_at timestamptz not null default now(),
   processed_at timestamptz
 );
+
+alter table public.send_requests
+  add column if not exists periodo_inicio date;
+
+alter table public.send_requests
+  add column if not exists periodo_fin date;
 
 create index if not exists send_requests_status_idx
   on public.send_requests (status, created_at);

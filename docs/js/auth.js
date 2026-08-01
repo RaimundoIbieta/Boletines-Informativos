@@ -294,7 +294,7 @@ export async function setRecipients(bulletinId, emails) {
 }
 
 /** Encola una prueba de envío (la procesa GitHub Actions). */
-export async function requestTestSend(bulletinId) {
+export async function requestTestSend(bulletinId, period = {}) {
   const u = getUser();
   if (!u) throw new Error('Sin sesión');
   const { data: pending } = await client()
@@ -320,15 +320,21 @@ export async function requestTestSend(bulletinId) {
       return { id: pending[0].id, already: true, ageMin: Math.round(ageMin) };
     }
   }
-  const { data, error } = await client()
-    .from('send_requests')
-    .insert({ bulletin_id: bulletinId, user_id: u.id, status: 'pending' })
-    .select('id')
-    .single();
+  const row = { bulletin_id: bulletinId, user_id: u.id, status: 'pending' };
+  if (period.periodo_inicio && period.periodo_fin) {
+    row.periodo_inicio = period.periodo_inicio;
+    row.periodo_fin = period.periodo_fin;
+  }
+  const { data, error } = await client().from('send_requests').insert(row).select('id').single();
   if (error) {
     if (/send_requests|schema cache|does not exist/i.test(error.message)) {
       throw new Error(
         'Falta crear la tabla de pruebas en Supabase. Ejecuta el SQL de supabase/send_requests.sql'
+      );
+    }
+    if (/periodo_inicio|periodo_fin|schema cache|column/i.test(error.message)) {
+      throw new Error(
+        'Falta el SQL de periodo en Supabase. Ejecuta supabase/period_selection.sql y vuelve a probar.'
       );
     }
     throw new Error(error.message);
