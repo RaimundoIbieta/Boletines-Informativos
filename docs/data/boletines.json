@@ -1,5 +1,35 @@
 [
   {
+    "id": "pol_tica_chilena_825901e6_2026-07-20_2026-07-26",
+    "theme_id": "pol_tica_chilena_825901e6",
+    "theme_title": "Boletín Semanal Análisis Político en Chile",
+    "theme_label": "Política Chilena",
+    "author": "Raimundo Ibieta",
+    "periodo_inicio": "2026-07-20",
+    "periodo_fin": "2026-07-26",
+    "generado_el": "2026-07-31",
+    "noticias": 9,
+    "pdf_local": "boletines/pol_tica_chilena_825901e6_2026-07-20_2026-07-26.pdf",
+    "drive_view_link": "",
+    "drive_download_link": "",
+    "published_at": "2026-08-01T01:52:00.162322+00:00"
+  },
+  {
+    "id": "pae_educaci_n_chile_6ccac16a_2026-07-20_2026-07-31",
+    "theme_id": "pae_educaci_n_chile_6ccac16a",
+    "theme_title": "Inteligencia de ecosistema PAE",
+    "theme_label": "PAE / Educación Chile",
+    "author": "Raimundo Ibieta",
+    "periodo_inicio": "2026-07-20",
+    "periodo_fin": "2026-07-31",
+    "generado_el": "2026-07-31",
+    "noticias": 9,
+    "pdf_local": "boletines/pae_educaci_n_chile_6ccac16a_2026-07-20_2026-07-31.pdf",
+    "drive_view_link": "",
+    "drive_download_link": "",
+    "published_at": "2026-08-01T01:50:52.687213+00:00"
+  },
+  {
     "id": "pol_tica_chilena_825901e6_2026-07-13_2026-07-24",
     "theme_id": "pol_tica_chilena_825901e6",
     "theme_title": "Boletín Semanal Análisis Político en Chile",
