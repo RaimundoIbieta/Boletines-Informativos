@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import unicodedata
 from datetime import date, datetime
 
 from boletin.config import Settings, ThemeConfig
@@ -12,6 +14,79 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MIN = 8
 DEFAULT_MAX = 10
+
+_STOPWORDS = {
+    "el", "la", "los", "las", "de", "del", "y", "o", "en", "un", "una", "unos", "unas",
+    "por", "para", "con", "sin", "al", "a", "se", "su", "sus", "que", "como", "más",
+    "tras", "ante", "sobre", "entre", "desde", "hasta", "este", "esta", "estos", "estas",
+    "chile", "chileno", "chilena", "gobierno", "tras", "segun", "según",
+}
+
+
+def _fold(text: str) -> str:
+    t = unicodedata.normalize("NFD", text or "")
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return t.lower()
+
+
+def _title_tokens(title: str) -> set[str]:
+    t = _fold(title)
+    # Unifica variantes frecuentes del mismo hecho
+    t = (
+        t.replace("megarreforma", "mega reforma")
+        .replace("mega-reforma", "mega reforma")
+        .replace("mega reforma", "mega reforma")
+    )
+    words = re.findall(r"[a-z0-9]{4,}", t)
+    return {w for w in words if w not in _STOPWORDS}
+
+
+def _token_soft_overlap(ta: set[str], tb: set[str]) -> set[str]:
+    """Tokens compartidos permitiendo prefijos/compuestos (mega⊂megarreforma)."""
+    shared: set[str] = set(ta & tb)
+    for a in ta:
+        for b in tb:
+            if a == b:
+                continue
+            if len(a) >= 4 and len(b) >= 4 and (a in b or b in a):
+                shared.add(a if len(a) <= len(b) else b)
+    return shared
+
+
+def _titles_are_same_story(a: str, b: str) -> bool:
+    """True si dos titulares describen el mismo hecho (cobertura multi-medio)."""
+    ta, tb = _title_tokens(a), _title_tokens(b)
+    if not ta or not tb:
+        return False
+    inter = _token_soft_overlap(ta, tb)
+    if len(inter) >= 3:
+        return True
+    jacc = len(inter) / max(1, len(ta | tb))
+    if jacc >= 0.4 and len(inter) >= 2:
+        return True
+    # Nombre propio + otro ancla (p. ej. Kast + reforma/congreso)
+    rare = {w for w in inter if len(w) >= 5}
+    if rare and len(inter) >= 2:
+        return True
+    if len(inter) >= 2 and (inter == ta or inter == tb):
+        return True
+    return False
+
+
+def _dedupe_same_story(noticias: list[NoticiaAnalizada]) -> list[NoticiaAnalizada]:
+    """Deja una sola noticia por hecho; conserva la de mayor relevancia."""
+    kept: list[NoticiaAnalizada] = []
+    for n in sorted(noticias, key=lambda x: x.relevancia, reverse=True):
+        dup = next((k for k in kept if _titles_are_same_story(n.titular, k.titular)), None)
+        if dup:
+            logger.info(
+                "Duplicado del mismo hecho omitido (%s) — ya está: %s",
+                n.titular[:70],
+                dup.titular[:70],
+            )
+            continue
+        kept.append(n)
+    return kept
 
 
 def _build_system_prompt(theme: ThemeConfig, min_n: int, max_n: int) -> str:
@@ -36,9 +111,13 @@ Otras reglas:
 - Selecciona entre {min_n} y {max_n} noticias REALES de las candidatas.
 - No inventes noticias, URLs, fechas ni fuentes.
 - El campo "link" DEBE ser la URL exacta de la candidata (sitio del medio). NUNCA uses news.google.com.
+- DIVERSIDAD (OBLIGATORIA): cada HECHO o acontecimiento aparece UNA sola vez.
+  Si varios medios cubren lo mismo (misma reforma, mismo anuncio, misma votación),
+  elige SOLO la mejor fuente (oficial o más completa) y DESCARTA el resto.
+  Prioriza variedad de subtemas: no sirve un boletín con 7 versiones del mismo titular.
 - Resumen: 3-4 líneas.
-- comentario, riesgos y oportunidades: concretos y accionables.
-- Al final, síntesis semanal de 6-8 líneas.
+- comentario, riesgos y oportunidades: concretos y accionables para ESTA audiencia y temática.
+- Al final, síntesis semanal de 6-8 líneas (sobre esta temática, no sobre otras).
 - Responde SOLO con JSON válido.
 """
 
@@ -89,7 +168,8 @@ def _user_prompt(
     return f"""Periodo del boletín: {start.isoformat()} a {end.isoformat()} (SOLO noticias de esas fechas).
 Temática: {theme.title}
 
-Selecciona entre {min_n} y {max_n} noticias más relevantes.
+Selecciona entre {min_n} y {max_n} noticias más relevantes y DIVERSAS.
+Si varios medios repiten el mismo hecho, quédate con una sola.
 Si detectas una nota antigua o recirculada, exclúyela.
 Devuelve JSON con esta forma exacta:
 {json.dumps(schema, ensure_ascii=False, indent=2)}
@@ -156,6 +236,7 @@ def _parse_boletin(
         n.fecha = f.isoformat()
         noticias.append(n)
 
+    noticias = _dedupe_same_story(noticias)
     noticias.sort(key=lambda n: n.relevancia, reverse=True)
     return BoletinSemanal(
         periodo_inicio=start,
