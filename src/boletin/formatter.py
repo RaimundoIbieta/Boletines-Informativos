@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from html import escape
+from urllib.parse import quote, unquote, urlsplit, urlunsplit
+
 from boletin.models import BoletinSemanal, NoticiaAnalizada
 
 TEMA_LABEL = {
@@ -18,6 +21,22 @@ TEMA_LABEL = {
 
 def _tema_label(tema: str) -> str:
     return TEMA_LABEL.get(tema, tema.replace("_", " "))
+
+
+def safe_http_url(url: str) -> str:
+    """Percent-encodea tildes/unicode para URI ASCII (PDF y HTML)."""
+    raw = (url or "").strip()
+    if not raw.startswith(("http://", "https://")):
+        return raw
+    parts = urlsplit(raw)
+    try:
+        netloc = parts.netloc.encode("idna").decode("ascii")
+    except Exception:
+        netloc = parts.netloc
+    path = quote(unquote(parts.path), safe="/:@!$&'()*+,;=-._~")
+    query = quote(unquote(parts.query), safe="=&:@!$&'()*+,;=-._~/%")
+    fragment = quote(unquote(parts.fragment), safe="=&:@!$&'()*+,;=-._~/%")
+    return urlunsplit((parts.scheme, netloc, path, query, fragment))
 
 
 def _format_noticia(n: NoticiaAnalizada, idx: int) -> str:
@@ -95,7 +114,7 @@ def to_html_email(boletin: BoletinSemanal, *, author_name: str = "Raimundo Ibiet
               <p style="margin:0 0 6px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#0f766e;">{tema}</p>
               <h2 style="margin:0 0 10px;font-size:18px;line-height:1.35;color:#0f172a;">{i}. {n.titular}</h2>
               <p style="margin:0 0 8px;font-size:13px;color:#64748b;"><strong>{n.fuente}</strong> — {n.fecha}</p>
-              <p style="margin:0 0 12px;font-size:13px;"><a href="{n.link}" style="color:#0f766e;">Leer noticia</a></p>
+              <p style="margin:0 0 12px;font-size:13px;"><a href="{escape(safe_http_url(n.link), quote=True)}" style="color:#0f766e;">Leer noticia</a></p>
               <p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:#334155;"><strong>Resumen:</strong> {n.resumen}</p>
               <p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:#334155;"><strong>Comentario:</strong> {n.comentario}</p>
               <p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:#334155;"><strong>Riesgos:</strong> {n.riesgos}</p>

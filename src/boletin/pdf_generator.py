@@ -8,7 +8,7 @@ from pathlib import Path
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
-from boletin.formatter import _tema_label
+from boletin.formatter import _tema_label, safe_http_url
 from boletin.models import BoletinSemanal, NoticiaAnalizada
 
 logger = logging.getLogger(__name__)
@@ -271,7 +271,8 @@ def _draw_noticia(pdf: BoletinPDF, idx: int, n: NoticiaAnalizada) -> None:
     pdf.set_font("DejaVu", "B", 8.5)
     pdf.set_text_color(*TEAL)
     label = _short_link_label(n.link)
-    pdf.cell(pdf.get_string_width(label) + 1, 5, label, link=n.link)
+    href = safe_http_url(n.link)
+    pdf.cell(pdf.get_string_width(label) + 1, 5, label, link=href)
     pdf.ln(4)
 
     old_l = pdf.l_margin
