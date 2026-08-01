@@ -60,6 +60,9 @@ class ScheduleConfig(BaseModel):
     hour: int = 7
     minute: int = 30
     timezone: str = "America/Santiago"
+    # previous_week = lun–dom previos; last_n_days = N días hasta el día anterior al envío
+    period_mode: str = "previous_week"
+    period_days: int = 7
 
     @property
     def weekday_index(self) -> int:
@@ -237,10 +240,36 @@ class RuntimeContext(BaseModel):
 
     def period_bounds(self, reference: date | None = None) -> tuple[date, date]:
         today = reference or date.today()
+        mode = (self.app.schedule.period_mode or "previous_week").strip().lower()
+        if mode == "last_n_days":
+            n = max(1, min(31, int(self.app.schedule.period_days or 7)))
+            end = today - timedelta(days=1)
+            start = end - timedelta(days=n - 1)
+            return start, end
+        # Semana previa completa (lunes a domingo)
         this_monday = today - timedelta(days=today.weekday())
         start = this_monday - timedelta(days=7)
         end = this_monday - timedelta(days=1)
         return start, end
+
+
+def compute_period_bounds(
+    period_mode: str = "previous_week",
+    period_days: int = 7,
+    reference: date | None = None,
+) -> tuple[date, date]:
+    """Calcula el periodo sin RuntimeContext (p. ej. defaults de prueba)."""
+    today = reference or date.today()
+    mode = (period_mode or "previous_week").strip().lower()
+    if mode == "last_n_days":
+        n = max(1, min(31, int(period_days or 7)))
+        end = today - timedelta(days=1)
+        start = end - timedelta(days=n - 1)
+        return start, end
+    this_monday = today - timedelta(days=today.weekday())
+    start = this_monday - timedelta(days=7)
+    end = this_monday - timedelta(days=1)
+    return start, end
 
 
 def get_runtime() -> RuntimeContext:
