@@ -1,5 +1,20 @@
 [
   {
+    "id": "pae_educaci_n_chile_6ccac16a_2026-07-27_2026-08-02",
+    "theme_id": "pae_educaci_n_chile_6ccac16a",
+    "theme_title": "Inteligencia de ecosistema PAE",
+    "theme_label": "PAE / Educación Chile",
+    "author": "Raimundo Ibieta",
+    "periodo_inicio": "2026-07-27",
+    "periodo_fin": "2026-08-02",
+    "generado_el": "2026-08-03",
+    "noticias": 4,
+    "pdf_local": "boletines/pae_educaci_n_chile_6ccac16a_2026-07-27_2026-08-02.pdf",
+    "drive_view_link": "",
+    "drive_download_link": "",
+    "published_at": "2026-08-03T12:02:37.861464+00:00"
+  },
+  {
     "id": "pol_tica_chilena_825901e6_2026-07-20_2026-07-26",
     "theme_id": "pol_tica_chilena_825901e6",
     "theme_title": "Boletín Semanal Análisis Político en Chile",
