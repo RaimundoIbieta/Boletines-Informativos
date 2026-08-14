@@ -39,23 +39,77 @@ function keywords(...parts) {
   return uniq;
 }
 
+/**
+ * Consultas de actualidad por dominio. Sin esto, un boletín de política se
+ * arma con frases genéricas y pierde los hechos del día (un cambio de
+ * gabinete, por ejemplo, no aparece buscando "política chilena").
+ */
+const NEWS_PACKS = [
+  {
+    test: /pol[ií]tic|gobierno|gabinete|congreso|electoral|moneda|estado/i,
+    queries: [
+      { q: 'cambio de gabinete Chile ministro', topic: 'GOBIERNO' },
+      { q: 'renuncia ministro Chile', topic: 'GOBIERNO' },
+      { q: 'Presidente de Chile anuncio La Moneda', topic: 'GOBIERNO' },
+      { q: 'Congreso Chile proyecto de ley votación', topic: 'LEGISLATIVO' },
+    ],
+  },
+  {
+    test: /miner|cobre|codelco|litio/i,
+    queries: [
+      { q: 'Codelco OR cobre Chile producción', topic: 'MINERIA' },
+      { q: 'litio Chile contrato OR royalty', topic: 'MINERIA' },
+    ],
+  },
+  {
+    test: /salud|isapre|fonasa|hospital/i,
+    queries: [
+      { q: 'Ministerio de Salud Chile anuncio', topic: 'SALUD' },
+      { q: 'isapres OR Fonasa Chile reforma', topic: 'SALUD' },
+    ],
+  },
+  {
+    test: /educaci[oó]n|escolar|mineduc|universidad/i,
+    queries: [
+      { q: 'MINEDUC Chile anuncio', topic: 'EDUCACION' },
+      { q: 'educación Chile reforma OR presupuesto', topic: 'EDUCACION' },
+    ],
+  },
+];
+
+/** "PAE / Educación Chile" → "PAE Educación": sin barras ni Chile repetido. */
+function searchLabel(label) {
+  return (label || '')
+    .replace(/[\/|]+/g, ' ')
+    .replace(/\bchile(n[ao]s?)?\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function withChile(text) {
+  const t = (text || '').trim();
+  if (!t) return 'Chile';
+  return /\bchile\b/i.test(t) ? t : `${t} Chile`;
+}
+
 /** Generador local (sin API): base editable para el usuario. */
 export function localSuggest({ title, short_label, audience, focus }) {
   const label = short_label || title || 'temática';
   const theme = topicFrom(short_label || title);
+  const base = searchLabel(label) || searchLabel(title) || 'actualidad';
   const kws = keywords(title, short_label, focus);
-  const main = kws[0] || label;
-  const second = kws[1] || 'Chile';
-  const third = kws[2] || kws[0] || label;
+  const main = kws[0] || base;
+  const second = kws[1] || '';
+
+  const context = `${title} ${short_label} ${focus}`;
+  const pack = NEWS_PACKS.find((p) => p.test.test(context));
 
   const queries = [
-    { q: `${main} Chile`, topic: theme },
-    { q: `${label}`, topic: theme },
-    { q: `${main} ${second}`, topic: theme },
-    { q: `${third} regulación OR ley Chile`, topic: `${theme}_NORMA` },
-    { q: `${main} licitación OR contrato Chile`, topic: `${theme}_MERCADO` },
-    { q: `Ministerio ${main} Chile`, topic: 'POLITICA' },
-    { q: `${audience ? audience.split(/\s+/).slice(0, 3).join(' ') : 'industria'} ${main}`, topic: theme },
+    ...(pack ? pack.queries : []),
+    { q: withChile(base), topic: theme },
+    ...(second ? [{ q: withChile(`${main} ${second}`), topic: theme }] : []),
+    { q: `${base} regulación OR ley Chile`, topic: `${theme}_NORMA` },
+    { q: `${base} licitación OR contrato Chile`, topic: `${theme}_MERCADO` },
   ];
 
   const who = audience || 'tomadores de decisión';
