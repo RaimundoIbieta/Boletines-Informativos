@@ -23,6 +23,8 @@ class RemoteBulletin:
     focus: str
     queries: list[tuple[str, str]]
     analysis_axes: list[str]
+    sections: list[str]
+    schedule_frequency: str
     schedule_weekday: str
     schedule_hour: int
     schedule_minute: int
@@ -44,6 +46,8 @@ class RemoteBulletin:
             focus=self.focus or "",
             queries=self.queries,
             analysis_axes=self.analysis_axes,
+            sections=self.sections,
+            cadence=self.schedule_frequency,
         )
 
 
@@ -118,6 +122,8 @@ def _from_row(row: dict[str, Any]) -> RemoteBulletin:
         focus=str(row.get("focus") or ""),
         queries=_parse_queries(row.get("queries")),
         analysis_axes=[str(x) for x in (row.get("analysis_axes") or []) if str(x).strip()],
+        sections=[str(x) for x in (row.get("sections") or []) if str(x).strip()],
+        schedule_frequency=str(row.get("schedule_frequency") or "weekly").lower(),
         schedule_weekday=str(row.get("schedule_weekday") or "monday").lower(),
         schedule_hour=int(row.get("schedule_hour") if row.get("schedule_hour") is not None else 7),
         schedule_minute=int(row.get("schedule_minute") if row.get("schedule_minute") is not None else 30),
@@ -159,6 +165,7 @@ def runtime_for_bulletin(base: RuntimeContext, remote: RemoteBulletin) -> Runtim
         author_name=base.app.author_name,
         emails=list(remote.emails),
         schedule=ScheduleConfig(
+            frequency=remote.schedule_frequency,
             weekday=remote.schedule_weekday,
             hour=remote.schedule_hour,
             minute=remote.schedule_minute,

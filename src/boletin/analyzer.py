@@ -91,7 +91,7 @@ def _dedupe_same_story(noticias: list[NoticiaAnalizada]) -> list[NoticiaAnalizad
 
 def _build_system_prompt(theme: ThemeConfig, min_n: int, max_n: int) -> str:
     axes = "\n".join(f"- {a}" for a in theme.analysis_axes) or "- impacto estratégico"
-    theme_text = f"{theme.title} {theme.short_label} {theme.focus}".lower()
+    theme_text = f"{theme.title} {theme.short_label}".lower()
     politics_priority = ""
     if "polític" in theme_text or "politic" in theme_text:
         politics_priority = """
@@ -108,6 +108,19 @@ Jerarquía editorial para POLÍTICA CHILENA (OBLIGATORIA):
 - Si hay suficientes candidatas de política institucional/partidaria, la MAYORÍA de las
   noticias seleccionadas debe pertenecer a esa categoría.
 """
+    sections_priority = ""
+    if theme.sections:
+        section_names = ", ".join(theme.sections)
+        sections_priority = f"""
+Secciones editoriales fijas (OBLIGATORIAS y en este orden):
+{section_names}
+- Clasifica cada noticia en EXACTAMENTE una de estas secciones; usa el nombre exacto.
+- Incluye al menos una noticia relevante por sección cuando existan candidatas.
+- Busca equilibrio: idealmente 2 o 3 noticias por sección, sin rellenar con notas irrelevantes.
+- Desambiguación: POLÍTICA trata actores, partidos, Gobierno y Congreso; NACIONAL trata
+  hechos internos relevantes que no correspondan principalmente a Economía, Social o Política;
+  INTERNACIONAL trata hechos externos con impacto o interés para Chile.
+"""
     return f"""Eres un analista experto. Temática del boletín: {theme.title}.
 
 Audiencia: {theme.audience or "tomadores de decisión"}.
@@ -118,6 +131,7 @@ Enfoque:
 Ancla siempre el análisis en:
 {axes}
 {politics_priority}
+{sections_priority}
 
 Reglas de fecha (OBLIGATORIAS):
 - El boletín cubre SOLO el periodo indicado, incluidos el primer y el ÚLTIMO día.
@@ -159,6 +173,27 @@ def _articles_payload(articles: list[RawArticle]) -> list[dict]:
     return payload
 
 
+def _section_candidates(
+    articles: list[RawArticle],
+    sections: list[str],
+    *,
+    per_section: int = 15,
+) -> list[RawArticle]:
+    """Acota periodos largos sin perder representación de ninguna sección."""
+    if not sections:
+        return articles
+    selected: list[RawArticle] = []
+    selected_urls: set[str] = set()
+    for section in sections:
+        rows = [a for a in articles if _fold(a.query_topic) == _fold(section)]
+        rows.sort(key=lambda a: a.published or date.min, reverse=True)
+        for article in rows[:per_section]:
+            if article.url not in selected_urls:
+                selected.append(article)
+                selected_urls.add(article.url)
+    return selected
+
+
 def _user_prompt(
     articles: list[RawArticle],
     start: date,
@@ -167,6 +202,11 @@ def _user_prompt(
     max_n: int,
     theme: ThemeConfig,
 ) -> str:
+    section_rule = (
+        f" El campo tema debe ser uno de: {', '.join(theme.sections)}."
+        if theme.sections
+        else ""
+    )
     schema = {
         "noticias": [
             {
@@ -178,7 +218,11 @@ def _user_prompt(
                 "comentario": "análisis técnico-político / impacto",
                 "riesgos": "riesgos para la audiencia",
                 "oportunidades": "oportunidades para la audiencia",
-                "tema": "etiqueta corta del subtema",
+                "tema": (
+                    f"una sección exacta: {', '.join(theme.sections)}"
+                    if theme.sections
+                    else "etiqueta corta del subtema"
+                ),
                 "relevancia": "1-10",
             }
         ],
@@ -187,7 +231,7 @@ def _user_prompt(
     return f"""Periodo del boletín: {start.isoformat()} a {end.isoformat()} inclusive (SOLO noticias de esas fechas).
 Temática: {theme.title}
 
-Prioriza lo más reciente: los hechos de {end.isoformat()} deben aparecer si son relevantes.
+Prioriza lo más reciente: los hechos de {end.isoformat()} deben aparecer si son relevantes.{section_rule}
 Selecciona entre {min_n} y {max_n} noticias más relevantes y DIVERSAS.
 Si varios medios repiten el mismo hecho, quédate con una sola.
 Si detectas una nota antigua o recirculada, exclúyela.
@@ -254,10 +298,21 @@ def _parse_boletin(
             )
             continue
         n.fecha = f.isoformat()
+        if theme.sections:
+            folded = _fold(n.tema).strip()
+            section = next((s for s in theme.sections if _fold(s).strip() == folded), None)
+            if not section:
+                logger.warning("Sección no válida (%s); se asigna a %s", n.tema, theme.sections[0])
+                section = theme.sections[0]
+            n.tema = section.upper()
         noticias.append(n)
 
     noticias = _dedupe_same_story(noticias)
-    noticias.sort(key=lambda n: n.relevancia, reverse=True)
+    if theme.sections:
+        order = {_fold(section): i for i, section in enumerate(theme.sections)}
+        noticias.sort(key=lambda n: (order.get(_fold(n.tema), len(order)), -n.relevancia))
+    else:
+        noticias.sort(key=lambda n: n.relevancia, reverse=True)
     return BoletinSemanal(
         periodo_inicio=start,
         periodo_fin=end,
@@ -267,6 +322,8 @@ def _parse_boletin(
         theme_id=theme.id,
         theme_title=theme.title,
         theme_label=theme.short_label,
+        sections=theme.sections,
+        cadence=theme.cadence,
     )
 
 
@@ -406,6 +463,10 @@ def analyze_articles(
         )
 
     generated = generated or date.today()
+    if theme.sections:
+        min_noticias = max(min_noticias, len(theme.sections))
+        max_noticias = max(max_noticias, len(theme.sections) * 3)
+        articles = _section_candidates(articles, theme.sections)
     system = _build_system_prompt(theme, min_noticias, max_noticias)
     user = _user_prompt(articles, start, end, min_noticias, max_noticias, theme)
 

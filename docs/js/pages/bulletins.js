@@ -40,6 +40,17 @@ function isoDate(d) {
 /** Misma lógica que el motor: últimos N días incluyendo hoy, o semana previa lun–dom. */
 function computePeriodBounds(mode, days, reference = new Date()) {
   const today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate());
+  if (mode === 'calendar_semimonthly') {
+    if (today.getDate() === 1) {
+      const end = new Date(today);
+      end.setDate(0);
+      const start = new Date(end.getFullYear(), end.getMonth(), 1);
+      return { start: isoDate(start), end: isoDate(end) };
+    }
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    const end = new Date(today.getFullYear(), today.getMonth(), Math.min(today.getDate(), 15));
+    return { start: isoDate(start), end: isoDate(end) };
+  }
   if (mode === 'previous_week') {
     const weekday = (today.getDay() + 6) % 7; // lunes=0
     const thisMonday = new Date(today);
@@ -96,6 +107,12 @@ function readForm(container, { requireEmails = false } = {}) {
       .value.split('\n')
       .map((x) => x.trim())
       .filter(Boolean),
+    sections: container
+      .querySelector('#sections')
+      .value.split('\n')
+      .map((x) => x.trim())
+      .filter(Boolean),
+    schedule_frequency: container.querySelector('#frequency').value,
     schedule_weekday: container.querySelector('#weekday').value,
     schedule_hour: Number(container.querySelector('#hour').value),
     schedule_minute: Number(container.querySelector('#minute').value),
@@ -152,7 +169,7 @@ export async function renderApp(container) {
         <div class="card">
           <span class="chip">${b.short_label}</span>
           <h2 style="margin:8px 0;font-family:Fraunces,Georgia,serif;font-size:1.2rem">${b.title}</h2>
-          <p class="muted">${b.schedule_weekday} ${String(b.schedule_hour).padStart(2, '0')}:${String(b.schedule_minute).padStart(2, '0')} ·
+          <p class="muted">${b.schedule_frequency === 'semimonthly' ? 'Días 1 y 15' : b.schedule_weekday} ${String(b.schedule_hour).padStart(2, '0')}:${String(b.schedule_minute).padStart(2, '0')} ·
             ${(b.bulletin_recipients || []).length} correo(s) · ${b.active ? 'activo' : 'pausado'}</p>
           <div class="btn-row">
             <a class="btn btn-secondary" href="#/boletin/${b.id}">Editar</a>
@@ -178,6 +195,7 @@ export async function renderBulletinEditor(container, id) {
   const recipients = (b?.bulletin_recipients || []).map((r) => r.email).join('\n');
   const periodMode = b?.period_mode || 'last_n_days';
   const periodDays = b?.period_days ?? 7;
+  const frequency = b?.schedule_frequency || 'weekly';
   const defaultPeriod = computePeriodBounds(periodMode, periodDays);
 
   container.innerHTML = `
@@ -204,9 +222,18 @@ export async function renderBulletinEditor(container, id) {
       <textarea id="queries" placeholder="cobre Chile OR Codelco | MINERIA">${escapeHtml(queriesToText(b?.queries))}</textarea>
       <label>Ejes de análisis (uno por línea)</label>
       <textarea id="axes">${escapeHtml((b?.analysis_axes || []).join('\n'))}</textarea>
+      <label>Secciones fijas (una por línea; opcional)</label>
+      <textarea id="sections" placeholder="Economía&#10;Social&#10;Política&#10;Nacional&#10;Internacional">${escapeHtml((b?.sections || []).join('\n'))}</textarea>
       <div class="grid grid-3">
         <div>
-          <label>Día de envío</label>
+          <label>Frecuencia</label>
+          <select id="frequency">
+            <option value="weekly" ${frequency === 'weekly' ? 'selected' : ''}>Semanal</option>
+            <option value="semimonthly" ${frequency === 'semimonthly' ? 'selected' : ''}>Días 1 y 15 de cada mes</option>
+          </select>
+        </div>
+        <div id="weekday-wrap" style="${frequency === 'semimonthly' ? 'display:none' : ''}">
+          <label>Día de envío semanal</label>
           <select id="weekday">
             ${DAYS.map(
               ([k, lab]) =>
@@ -214,6 +241,8 @@ export async function renderBulletinEditor(container, id) {
             ).join('')}
           </select>
         </div>
+      </div>
+      <div class="grid grid-3">
         <div>
           <label>Hora</label>
           <input id="hour" type="number" min="0" max="23" value="${b?.schedule_hour ?? 7}" />
@@ -231,9 +260,10 @@ export async function renderBulletinEditor(container, id) {
           <select id="period_mode">
             <option value="last_n_days" ${periodMode === 'last_n_days' ? 'selected' : ''}>Últimos N días (incluye el día de envío)</option>
             <option value="previous_week" ${periodMode === 'previous_week' ? 'selected' : ''}>Semana previa cerrada (lun–dom)</option>
+            <option value="calendar_semimonthly" ${periodMode === 'calendar_semimonthly' ? 'selected' : ''}>Calendario quincenal (1 y 15)</option>
           </select>
         </div>
-        <div id="period-days-wrap" style="${periodMode === 'previous_week' ? 'display:none' : ''}">
+        <div id="period-days-wrap" style="${periodMode !== 'last_n_days' ? 'display:none' : ''}">
           <label>Días (N)</label>
           <input id="period_days" type="number" min="1" max="31" value="${periodDays}" />
         </div>
@@ -242,6 +272,7 @@ export async function renderBulletinEditor(container, id) {
       <p class="muted" style="margin:4px 0 10px">
         Con <strong>Últimos N días</strong> el boletín del viernes 18:30 incluye lo que pasó ese mismo viernes.
         La <strong>semana previa cerrada</strong> termina el domingo anterior, así que no cubre el día de envío.
+        El <strong>calendario quincenal</strong> cubre el mes anterior el día 1 y los días 1–15 el día 15.
       </p>
       <div class="grid grid-3" style="margin-top:8px">
         <div>
@@ -280,9 +311,9 @@ export async function renderBulletinEditor(container, id) {
       else saved = await updateBulletin(id, payload);
     } catch (e) {
       const msg = e.message || String(e);
-      if (/period_mode|period_days|schema cache|column/i.test(msg)) {
+      if (/period_mode|period_days|schedule_frequency|sections|schema cache|column/i.test(msg)) {
         throw new Error(
-          'Falta el SQL de periodo en Supabase. Ejecuta supabase/period_selection.sql y vuelve a guardar.'
+          'Falta actualizar Supabase. Ejecuta supabase/semimonthly_bulletins.sql y vuelve a guardar.'
         );
       }
       throw e;
@@ -295,7 +326,7 @@ export async function renderBulletinEditor(container, id) {
     const mode = container.querySelector('#period_mode').value;
     const days = container.querySelector('#period_days').value;
     const wrap = container.querySelector('#period-days-wrap');
-    if (wrap) wrap.style.display = mode === 'previous_week' ? 'none' : '';
+    if (wrap) wrap.style.display = mode === 'last_n_days' ? '' : 'none';
     const bounds = computePeriodBounds(mode, days);
     container.querySelector('#period_start').value = bounds.start;
     container.querySelector('#period_end').value = bounds.end;
@@ -303,9 +334,19 @@ export async function renderBulletinEditor(container, id) {
 
   container.querySelector('#period_mode').onchange = syncPeriodDatesFromMode;
   container.querySelector('#period_days').oninput = () => {
-    if (container.querySelector('#period_mode').value !== 'previous_week') syncPeriodDatesFromMode();
+    if (container.querySelector('#period_mode').value === 'last_n_days') syncPeriodDatesFromMode();
   };
   container.querySelector('#period-reset').onclick = syncPeriodDatesFromMode;
+
+  function syncFrequency() {
+    const semimonthly = container.querySelector('#frequency').value === 'semimonthly';
+    container.querySelector('#weekday-wrap').style.display = semimonthly ? 'none' : '';
+    if (semimonthly) {
+      container.querySelector('#period_mode').value = 'calendar_semimonthly';
+      syncPeriodDatesFromMode();
+    }
+  }
+  container.querySelector('#frequency').onchange = syncFrequency;
 
   const qEl = container.querySelector('#queries');
   const aEl = container.querySelector('#axes');

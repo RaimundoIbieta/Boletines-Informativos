@@ -52,12 +52,15 @@ create table if not exists public.bulletins (
   focus text not null default '',
   queries jsonb not null default '[]'::jsonb,
   analysis_axes jsonb not null default '[]'::jsonb,
+  sections jsonb not null default '[]'::jsonb,
+  schedule_frequency text not null default 'weekly'
+    check (schedule_frequency in ('weekly', 'semimonthly')),
   schedule_weekday text not null default 'monday',
   schedule_hour int not null default 7,
   schedule_minute int not null default 30,
   -- last_n_days = N días terminando el día del envío; previous_week = lunes–domingo previos
   period_mode text not null default 'last_n_days'
-    check (period_mode in ('previous_week', 'last_n_days')),
+    check (period_mode in ('previous_week', 'last_n_days', 'calendar_semimonthly')),
   period_days int not null default 7
     check (period_days >= 1 and period_days <= 31),
   active boolean not null default true,

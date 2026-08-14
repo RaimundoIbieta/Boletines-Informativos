@@ -250,10 +250,15 @@ def _run_web_bulletins(
     for remote in remotes:
         ctx = runtime_for_bulletin(base_ctx, remote)
         if scheduled and not should_run_scheduled(ctx):
+            schedule_label = (
+                "días 1 y 15"
+                if remote.schedule_frequency == "semimonthly"
+                else remote.schedule_weekday
+            )
             logging.info(
                 "Omitido %s (aún no toca: %s %02d:%02d)",
                 remote.short_label,
-                remote.schedule_weekday,
+                schedule_label,
                 remote.schedule_hour,
                 remote.schedule_minute,
             )

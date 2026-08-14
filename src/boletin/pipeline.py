@@ -28,7 +28,11 @@ def should_run_scheduled(ctx: RuntimeContext, now: datetime | None = None) -> bo
     else:
         now = now.astimezone(ctx.timezone)
 
-    if now.weekday() != ctx.schedule_weekday:
+    frequency = (ctx.app.schedule.frequency or "weekly").strip().lower()
+    if frequency == "semimonthly":
+        if now.day not in (1, 15):
+            return False
+    elif now.weekday() != ctx.schedule_weekday:
         return False
     target = ctx.schedule_hour * 60 + ctx.schedule_minute
     current = now.hour * 60 + now.minute

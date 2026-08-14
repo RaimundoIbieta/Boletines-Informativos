@@ -135,7 +135,7 @@ def _draw_cover(pdf: BoletinPDF, boletin: BoletinSemanal) -> None:
     pdf.cell(
         0,
         5,
-        f"BOLETÍN SEMANAL · {boletin.theme_label.upper()}",
+        f"BOLETÍN DE ANÁLISIS · {boletin.theme_label.upper()}",
         new_x=XPos.LMARGIN,
         new_y=YPos.NEXT,
     )
@@ -172,7 +172,7 @@ def _draw_cover(pdf: BoletinPDF, boletin: BoletinSemanal) -> None:
         0,
         5,
         f"Selección de noticias relevantes para {intro}: "
-        "hechos distintos de la semana, con riesgos y oportunidades accionables.",
+        "hechos distintos del periodo, con riesgos y oportunidades accionables.",
     )
     pdf.ln(4)
     _reset(pdf)
@@ -293,6 +293,17 @@ def _draw_noticia(pdf: BoletinPDF, idx: int, n: NoticiaAnalizada) -> None:
     _reset(pdf)
 
 
+def _draw_section_header(pdf: BoletinPDF, section: str) -> None:
+    _ensure_space(pdf, 18)
+    _reset(pdf)
+    pdf.set_fill_color(*TEAL)
+    pdf.set_text_color(*WHITE)
+    pdf.set_font("DejaVu", "B", 12)
+    pdf.cell(0, 10, section.upper(), fill=True, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(4)
+    _reset(pdf)
+
+
 def _draw_sintesis(pdf: BoletinPDF, texto: str, *, title: str) -> None:
     if pdf.get_y() > pdf.h - pdf.b_margin - 50:
         pdf.add_page()
@@ -350,13 +361,18 @@ def generate_pdf(
 
     _draw_cover(pdf, boletin)
 
+    current_section = ""
     for i, n in enumerate(boletin.noticias, start=1):
+        section = _tema_label(n.tema)
+        if boletin.sections and section != current_section:
+            _draw_section_header(pdf, section)
+            current_section = section
         _draw_noticia(pdf, i, n)
 
     _draw_sintesis(
         pdf,
         boletin.sintesis.strip(),
-        title=f"Síntesis semanal · {boletin.theme_label or boletin.theme_title}",
+        title=f"Síntesis del periodo · {boletin.theme_label or boletin.theme_title}",
     )
 
     pdf.output(str(path))
