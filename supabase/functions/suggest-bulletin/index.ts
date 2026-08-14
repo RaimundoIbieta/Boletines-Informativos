@@ -57,6 +57,11 @@ Reglas:
 - Cada "q" debe ser corta y usable en Bing/Google News (evita OR muy complejos; máximo un OR simple).
 - "topic" en MAYÚSCULAS_CON_GUION_BAJO (ej. MINERIA, JUNAEB_PAE, REGULACION).
 - Entre 5 y 7 ejes de análisis concretos y accionables para la audiencia.
+- Si la temática es política chilena, entiende "política" principalmente como ejercicio del poder:
+  Gobierno y gabinete, nombramientos y renuncias, oposición, partidos y coaliciones, Congreso,
+  elecciones, encuestas y controversias políticas. Las políticas públicas sectoriales son
+  complementarias. Incluye búsquedas específicas para esos actores y hechos; no generes consultas
+  vagas como "análisis Chile" o "Ministerio análisis".
 - No inventes URLs. No uses markdown.`;
 
     const models = ["gemini-flash-latest", "gemini-2.0-flash", "gemini-2.0-flash-lite"];

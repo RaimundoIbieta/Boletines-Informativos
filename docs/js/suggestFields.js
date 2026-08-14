@@ -50,7 +50,8 @@ const NEWS_PACKS = [
     queries: [
       { q: 'cambio de gabinete Chile ministro', topic: 'GOBIERNO' },
       { q: 'renuncia ministro Chile', topic: 'GOBIERNO' },
-      { q: 'Presidente de Chile anuncio La Moneda', topic: 'GOBIERNO' },
+      { q: 'oposición Chile gobierno controversia', topic: 'OPOSICION' },
+      { q: 'partidos políticos Chile coalición', topic: 'PARTIDOS' },
       { q: 'Congreso Chile proyecto de ley votación', topic: 'LEGISLATIVO' },
     ],
   },
@@ -77,6 +78,25 @@ const NEWS_PACKS = [
   },
 ];
 
+function newsPackFor({ title = '', short_label = '', focus = '' }) {
+  const context = `${title} ${short_label} ${focus}`;
+  return NEWS_PACKS.find((p) => p.test.test(context));
+}
+
+function addNewsPack(suggestion, input) {
+  const pack = newsPackFor(input);
+  if (!pack) return suggestion;
+  const combined = [...pack.queries, ...(suggestion.queries || [])];
+  const seen = new Set();
+  const queries = combined.filter((row) => {
+    const key = String(row?.q || '').trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return { ...suggestion, queries: queries.slice(0, 10) };
+}
+
 /** "PAE / Educación Chile" → "PAE Educación": sin barras ni Chile repetido. */
 function searchLabel(label) {
   return (label || '')
@@ -101,8 +121,7 @@ export function localSuggest({ title, short_label, audience, focus }) {
   const main = kws[0] || base;
   const second = kws[1] || '';
 
-  const context = `${title} ${short_label} ${focus}`;
-  const pack = NEWS_PACKS.find((p) => p.test.test(context));
+  const pack = newsPackFor({ title, short_label, focus });
 
   const queries = [
     ...(pack ? pack.queries : []),
@@ -160,7 +179,8 @@ export async function suggestBulletinFields(input) {
     throw new Error('Completa al menos título, etiqueta o enfoque antes de sugerir.');
   }
   try {
-    return await suggestViaEdge({ title, short_label, audience, focus });
+    const input = { title, short_label, audience, focus };
+    return addNewsPack(await suggestViaEdge(input), input);
   } catch {
     return localSuggest({ title, short_label, audience, focus });
   }
