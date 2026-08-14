@@ -102,7 +102,8 @@ Ancla siempre el análisis en:
 {axes}
 
 Reglas de fecha (OBLIGATORIAS):
-- El boletín cubre SOLO el periodo indicado (semana previa completa).
+- El boletín cubre SOLO el periodo indicado, incluidos el primer y el ÚLTIMO día.
+- Lo ocurrido el último día del periodo (hoy) es lo más relevante: NO lo omitas.
 - NO incluyas noticias de meses o semanas anteriores aunque aparezcan en las candidatas.
 - Si una nota es recirculada/antigua y el RSS la muestra “reciente”, DESCÁRTALA.
 - El campo "fecha" de cada noticia DEBE caer dentro del periodo (YYYY-MM-DD).
@@ -165,9 +166,10 @@ def _user_prompt(
         ],
         "sintesis": "6-8 líneas",
     }
-    return f"""Periodo del boletín: {start.isoformat()} a {end.isoformat()} (SOLO noticias de esas fechas).
+    return f"""Periodo del boletín: {start.isoformat()} a {end.isoformat()} inclusive (SOLO noticias de esas fechas).
 Temática: {theme.title}
 
+Prioriza lo más reciente: los hechos de {end.isoformat()} deben aparecer si son relevantes.
 Selecciona entre {min_n} y {max_n} noticias más relevantes y DIVERSAS.
 Si varios medios repiten el mismo hecho, quédate con una sola.
 Si detectas una nota antigua o recirculada, exclúyela.

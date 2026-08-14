@@ -163,7 +163,7 @@ def _process_test_requests(
     if not pending:
         return 0
 
-    today = reference or date.today()
+    today = reference or base_ctx.today_local()
 
     done = 0
     for req in pending:

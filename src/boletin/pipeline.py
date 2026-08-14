@@ -51,7 +51,7 @@ def run_boletin(
         start, end = period_start, period_end
     else:
         start, end = ctx.period_bounds(reference_date)
-    generated = reference_date or date.today()
+    generated = reference_date or ctx.today_local()
     logger.info(
         "Temática=%s | Periodo %s → %s",
         theme.id,

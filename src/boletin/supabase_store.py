@@ -28,7 +28,7 @@ class RemoteBulletin:
     schedule_minute: int
     emails: list[str]
     active: bool = True
-    period_mode: str = "previous_week"
+    period_mode: str = "last_n_days"
     period_days: int = 7
 
     def theme_id(self) -> str:
@@ -123,7 +123,7 @@ def _from_row(row: dict[str, Any]) -> RemoteBulletin:
         schedule_minute=int(row.get("schedule_minute") if row.get("schedule_minute") is not None else 30),
         emails=emails,
         active=bool(row.get("active", True)),
-        period_mode=str(row.get("period_mode") or "previous_week").lower(),
+        period_mode=str(row.get("period_mode") or "last_n_days").lower(),
         period_days=int(row.get("period_days") if row.get("period_days") is not None else 7),
     )
 
@@ -163,7 +163,7 @@ def runtime_for_bulletin(base: RuntimeContext, remote: RemoteBulletin) -> Runtim
             hour=remote.schedule_hour,
             minute=remote.schedule_minute,
             timezone=base.app.schedule.timezone,
-            period_mode=remote.period_mode or "previous_week",
+            period_mode=remote.period_mode or "last_n_days",
             period_days=remote.period_days or 7,
         ),
         active_theme=theme.id,
