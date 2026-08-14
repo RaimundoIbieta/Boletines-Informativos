@@ -91,6 +91,23 @@ def _dedupe_same_story(noticias: list[NoticiaAnalizada]) -> list[NoticiaAnalizad
 
 def _build_system_prompt(theme: ThemeConfig, min_n: int, max_n: int) -> str:
     axes = "\n".join(f"- {a}" for a in theme.analysis_axes) or "- impacto estratégico"
+    theme_text = f"{theme.title} {theme.short_label} {theme.focus}".lower()
+    politics_priority = ""
+    if "polític" in theme_text or "politic" in theme_text:
+        politics_priority = """
+Jerarquía editorial para POLÍTICA CHILENA (OBLIGATORIA):
+- El foco principal es la política como ejercicio del poder y actuación de los políticos.
+- Prioriza: Presidencia y gabinete; nombramientos y renuncias de ministros/subsecretarios;
+  decisiones del Gobierno; oposición; partidos y coaliciones; Congreso, negociaciones y
+  votaciones; conflictos, responsabilidades políticas, elecciones y encuestas.
+- Un cambio de gabinete, renuncia o nombramiento ministerial relevante NO puede omitirse
+  si aparece entre las candidatas del periodo.
+- Las políticas públicas sectoriales (por ejemplo, Política Nacional de la Lectura) son
+  secundarias: inclúyelas si provocan una decisión o controversia política nacional, o si
+  no hay suficiente actualidad sobre actores políticos.
+- Si hay suficientes candidatas de política institucional/partidaria, la MAYORÍA de las
+  noticias seleccionadas debe pertenecer a esa categoría.
+"""
     return f"""Eres un analista experto. Temática del boletín: {theme.title}.
 
 Audiencia: {theme.audience or "tomadores de decisión"}.
@@ -100,6 +117,7 @@ Enfoque:
 
 Ancla siempre el análisis en:
 {axes}
+{politics_priority}
 
 Reglas de fecha (OBLIGATORIAS):
 - El boletín cubre SOLO el periodo indicado, incluidos el primer y el ÚLTIMO día.
