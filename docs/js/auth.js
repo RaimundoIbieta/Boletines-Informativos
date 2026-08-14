@@ -299,7 +299,7 @@ export async function requestTestSend(bulletinId, period = {}) {
   if (!u) throw new Error('Sin sesión');
   const { data: pending } = await client()
     .from('send_requests')
-    .select('id,created_at')
+    .select('id,created_at,periodo_inicio,periodo_fin')
     .eq('bulletin_id', bulletinId)
     .eq('status', 'pending')
     .limit(1);
@@ -317,6 +317,21 @@ export async function requestTestSend(bulletinId, period = {}) {
         })
         .eq('id', pending[0].id);
     } else {
+      const samePeriod =
+        (pending[0].periodo_inicio || null) === (period.periodo_inicio || null) &&
+        (pending[0].periodo_fin || null) === (period.periodo_fin || null);
+      if (!samePeriod && period.periodo_inicio && period.periodo_fin) {
+        // La cola pendiente traía otro rango: actualizarla para no reenviar lo mismo
+        const { error: upErr } = await client()
+          .from('send_requests')
+          .update({
+            periodo_inicio: period.periodo_inicio,
+            periodo_fin: period.periodo_fin,
+          })
+          .eq('id', pending[0].id);
+        if (upErr) throw new Error(upErr.message);
+        return { id: pending[0].id, already: true, updatedPeriod: true, ageMin: Math.round(ageMin) };
+      }
       return { id: pending[0].id, already: true, ageMin: Math.round(ageMin) };
     }
   }

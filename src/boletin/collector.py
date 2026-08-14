@@ -246,32 +246,29 @@ def resolve_article_date(
     """
     Determina la fecha efectiva de la noticia.
 
-    Regla: si el texto menciona claramente una fecha FUERA del periodo,
-    se descarta (None) aunque el RSS diga lo contrario (Google News a menudo
-    reindexa o recircula notas antiguas).
+    La fecha del feed manda cuando cae en el periodo: una nota de hoy suele
+    mencionar fechas antiguas de contexto (cuándo asumió alguien, una ley de
+    otro año) y antes eso la descartaba. Solo si el feed no confirma la fecha
+    se usa el texto, y ahí sí se descarta lo que solo tiene fechas viejas.
     """
+    if rss_date and start <= rss_date <= end:
+        return rss_date
+
     corpus = f"{title}\n{snippet}\n{full_text}"
     text_dates = extract_dates_from_text(corpus)
 
-    out_of_range = [d for d in text_dates if d < start or d > end]
     in_range = [d for d in text_dates if start <= d <= end]
+    if in_range:
+        return max(in_range)
 
-    # Señal fuerte de noticia antigua en el cuerpo
-    if out_of_range and not in_range:
-        oldest = min(out_of_range)
+    out_of_range = [d for d in text_dates if d < start or d > end]
+    if out_of_range:
         logger.info(
             "Descartada por fecha en texto fuera de periodo (%s): %s",
-            oldest.isoformat(),
+            min(out_of_range).isoformat(),
             title[:80],
         )
         return None
-
-    if rss_date and start <= rss_date <= end:
-        # Si el texto solo muestra fechas fuera de rango, ya se filtró arriba
-        return rss_date
-
-    if in_range:
-        return max(in_range)
 
     # Sin fecha verificable en el periodo → no incluir
     return None
@@ -326,7 +323,7 @@ def collect_articles(
     max_per_query: int = 15,
     fetch_body: bool = True,
 ) -> list[RawArticle]:
-    """Recolecta noticias estrictamente del rango [start, end] (lun–dom previo)."""
+    """Recolecta noticias estrictamente del rango [start, end], ambos inclusive."""
     search_queries = queries or SEARCH_QUERIES
     seen_titles: set[str] = set()
     seen_urls: set[str] = set()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from functools import cached_property
 from pathlib import Path
 from typing import Any
@@ -60,8 +60,8 @@ class ScheduleConfig(BaseModel):
     hour: int = 7
     minute: int = 30
     timezone: str = "America/Santiago"
-    # previous_week = lun–dom previos; last_n_days = N días hasta el día anterior al envío
-    period_mode: str = "previous_week"
+    # last_n_days = N días terminando el día del envío; previous_week = lun–dom previos
+    period_mode: str = "last_n_days"
     period_days: int = 7
 
     @property
@@ -238,37 +238,38 @@ class RuntimeContext(BaseModel):
             return self.secrets.schedule_minute
         return self.app.schedule.minute
 
+    def today_local(self) -> date:
+        """Fecha en la zona del boletín (en Actions date.today() es UTC)."""
+        return datetime.now(self.timezone).date()
+
     def period_bounds(self, reference: date | None = None) -> tuple[date, date]:
-        today = reference or date.today()
-        mode = (self.app.schedule.period_mode or "previous_week").strip().lower()
-        if mode == "last_n_days":
-            n = max(1, min(31, int(self.app.schedule.period_days or 7)))
-            end = today - timedelta(days=1)
-            start = end - timedelta(days=n - 1)
-            return start, end
-        # Semana previa completa (lunes a domingo)
+        return compute_period_bounds(
+            self.app.schedule.period_mode,
+            self.app.schedule.period_days,
+            reference or self.today_local(),
+        )
+
+
+def compute_period_bounds(
+    period_mode: str = "last_n_days",
+    period_days: int = 7,
+    reference: date | None = None,
+) -> tuple[date, date]:
+    """Rango de noticias del boletín.
+
+    last_n_days incluye el día del envío: un boletín del viernes 18:30 debe
+    considerar lo que pasó ese mismo viernes.
+    """
+    today = reference or date.today()
+    mode = (period_mode or "last_n_days").strip().lower()
+    if mode == "previous_week":
         this_monday = today - timedelta(days=today.weekday())
         start = this_monday - timedelta(days=7)
         end = this_monday - timedelta(days=1)
         return start, end
-
-
-def compute_period_bounds(
-    period_mode: str = "previous_week",
-    period_days: int = 7,
-    reference: date | None = None,
-) -> tuple[date, date]:
-    """Calcula el periodo sin RuntimeContext (p. ej. defaults de prueba)."""
-    today = reference or date.today()
-    mode = (period_mode or "previous_week").strip().lower()
-    if mode == "last_n_days":
-        n = max(1, min(31, int(period_days or 7)))
-        end = today - timedelta(days=1)
-        start = end - timedelta(days=n - 1)
-        return start, end
-    this_monday = today - timedelta(days=today.weekday())
-    start = this_monday - timedelta(days=7)
-    end = this_monday - timedelta(days=1)
+    n = max(1, min(31, int(period_days or 7)))
+    end = today
+    start = end - timedelta(days=n - 1)
     return start, end
 
 

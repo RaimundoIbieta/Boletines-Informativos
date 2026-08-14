@@ -1,7 +1,7 @@
 -- Periodo de selección de noticias (ejecutar en SQL Editor si el schema ya existía).
 
 alter table public.bulletins
-  add column if not exists period_mode text not null default 'previous_week'
+  add column if not exists period_mode text not null default 'last_n_days'
     check (period_mode in ('previous_week', 'last_n_days'));
 
 alter table public.bulletins

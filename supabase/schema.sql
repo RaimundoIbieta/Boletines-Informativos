@@ -55,8 +55,8 @@ create table if not exists public.bulletins (
   schedule_weekday text not null default 'monday',
   schedule_hour int not null default 7,
   schedule_minute int not null default 30,
-  -- previous_week = lunes–domingo previos al envío; last_n_days = N días hasta el día anterior
-  period_mode text not null default 'previous_week'
+  -- last_n_days = N días terminando el día del envío; previous_week = lunes–domingo previos
+  period_mode text not null default 'last_n_days'
     check (period_mode in ('previous_week', 'last_n_days')),
   period_days int not null default 7
     check (period_days >= 1 and period_days <= 31),

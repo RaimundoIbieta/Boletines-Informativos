@@ -24,7 +24,7 @@ export const PAE_BULLETIN = {
   schedule_weekday: 'monday',
   schedule_hour: 7,
   schedule_minute: 30,
-  period_mode: 'previous_week',
+  period_mode: 'last_n_days',
   period_days: 7,
   active: true,
 };
