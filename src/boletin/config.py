@@ -36,6 +36,8 @@ class ThemeConfig(BaseModel):
     focus: str = ""
     queries: list[tuple[str, str]] = Field(default_factory=list)
     analysis_axes: list[str] = Field(default_factory=list)
+    sections: list[str] = Field(default_factory=list)
+    cadence: str = "weekly"
 
     @model_validator(mode="before")
     @classmethod
@@ -56,6 +58,7 @@ class ThemeConfig(BaseModel):
 
 
 class ScheduleConfig(BaseModel):
+    frequency: str = "weekly"
     weekday: str = "monday"
     hour: int = 7
     minute: int = 30
@@ -262,6 +265,16 @@ def compute_period_bounds(
     """
     today = reference or date.today()
     mode = (period_mode or "last_n_days").strip().lower()
+    if mode == "calendar_semimonthly":
+        if today.day == 1:
+            previous_month_end = today - timedelta(days=1)
+            start = previous_month_end.replace(day=1)
+            return start, previous_month_end
+        # El envío del 15 cubre la primera quincena inclusive. Para una prueba
+        # antes del 15, no incluye días futuros.
+        start = today.replace(day=1)
+        end = today.replace(day=15) if today.day >= 15 else today
+        return start, end
     if mode == "previous_week":
         this_monday = today - timedelta(days=today.weekday())
         start = this_monday - timedelta(days=7)

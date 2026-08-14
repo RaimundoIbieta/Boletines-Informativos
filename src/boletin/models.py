@@ -45,3 +45,5 @@ class BoletinSemanal(BaseModel):
     theme_id: str = "pae"
     theme_title: str = "Boletín semanal"
     theme_label: str = "Boletín"
+    sections: list[str] = Field(default_factory=list)
+    cadence: str = "weekly"
