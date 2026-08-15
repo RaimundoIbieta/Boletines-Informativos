@@ -26,6 +26,16 @@ dependencies = [
 
 [project.scripts]
 boletin = "boletin.cli:main"
+analizador-medios = "media_analyzer.cli:main"
+
+[project.optional-dependencies]
+media = [
+  "pypdf>=4.0.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["boletin*", "media_analyzer*"]
+
+[tool.setuptools.package-data]
+media_analyzer = ["data/*.json"]
