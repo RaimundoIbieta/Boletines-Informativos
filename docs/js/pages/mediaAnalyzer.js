@@ -1,4 +1,4 @@
-import { client, getUser, isSuperAdmin } from './auth.js';
+import { client, getUser, isSuperAdmin } from '../auth.js';
 import { navigate } from '../router.js';
 
 const REGIONS = [
