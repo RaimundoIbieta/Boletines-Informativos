@@ -87,6 +87,22 @@ X, Instagram, Facebook y TikTok **no permiten buscar por tema sin sesión**: cer
 pública. Para X se lee el timeline público de cuentas concretas; para las otras tres solo hay
 cobertura indirecta. Cada análisis muestra una tabla de cobertura con el método usado.
 
+### Qué opinan del actor
+
+El informe incluye una sección «Qué se dice del actor» que mide la conversación **sobre** él:
+
+- Clasifica cada mención como favorable, crítica o neutra, separando la voz de la audiencia
+  (personas en Reddit, Bluesky, Mastodon) de la de los medios.
+- Cuenta las comparaciones explícitas con los rivales que se indiquen («es mejor que»,
+  «prefiero a», «X > Y») y reporta quién sale favorecido.
+- Busca hilos de debate, no solo titulares, e incorpora comentarios de Reddit.
+
+Con `GEMINI_API_KEY` configurada la clasificación la hace el modelo, que detecta ironía; sin la
+clave se usa un léxico bilingüe que solo reconoce valoraciones explícitas. El informe avisa
+cuando la muestra es insuficiente (menos de 10 menciones con postura), cuando una comparación
+tiene menos de 5 casos y cuando el léxico produce un resultado casi unánime. **No es una encuesta
+representativa**: describe lo publicado en las fuentes accesibles.
+
 ### Probar el piloto
 
 1. Entra como admin → **Analizador** → **Nuevo análisis**

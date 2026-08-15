@@ -174,6 +174,141 @@ class PlatformCoverage(BaseModel):
     note: str = ""
 
 
+class StanceBreakdown(BaseModel):
+    """Conteo de posturas hacia un actor."""
+
+    favorable: int = 0
+    critica: int = 0
+    neutra: int = 0
+
+    def add(self, stance: str) -> None:
+        if stance == "favorable":
+            self.favorable += 1
+        elif stance == "critica":
+            self.critica += 1
+        else:
+            self.neutra += 1
+
+    @property
+    def total(self) -> int:
+        return self.favorable + self.critica + self.neutra
+
+    @property
+    def opinionated(self) -> int:
+        return self.favorable + self.critica
+
+    @property
+    def favorable_share(self) -> float:
+        """Porcentaje de apoyo entre quienes sí opinan."""
+        return round(100 * self.favorable / self.opinionated, 1) if self.opinionated else 0.0
+
+    @property
+    def critical_share(self) -> float:
+        return round(100 * self.critica / self.opinionated, 1) if self.opinionated else 0.0
+
+
+class OpinionQuote(BaseModel):
+    """Cita textual que respalda una postura."""
+
+    stance: Literal["favorable", "critica", "neutra"]
+    intensity: float = 0.0
+    text: str
+    author: str = ""
+    source_type: str = ""
+    url: str = ""
+    voice: Literal["audience", "media"] = "audience"
+
+
+# Bajo estos mínimos el resultado es anecdótico y no se presenta como conclusión.
+MIN_DUEL_COMPARISONS = 5
+MIN_OPINIONATED_MENTIONS = 10
+
+
+class PreferenceDuel(BaseModel):
+    """Resultado de las comparaciones explícitas entre el actor y un rival."""
+
+    actor: str
+    rival: str
+    actor_votes: int = 0
+    rival_votes: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.actor_votes + self.rival_votes
+
+    @property
+    def actor_share(self) -> float:
+        return round(100 * self.actor_votes / self.total, 1) if self.total else 0.0
+
+    @property
+    def conclusive(self) -> bool:
+        """Con pocas comparaciones no se puede declarar un ganador."""
+        return self.total >= MIN_DUEL_COMPARISONS
+
+    @property
+    def winner(self) -> str:
+        if not self.conclusive:
+            return "sin evidencia suficiente"
+        if self.actor_votes > self.rival_votes:
+            return self.actor
+        if self.rival_votes > self.actor_votes:
+            return self.rival
+        return "empate"
+
+
+class OpinionAnalysis(BaseModel):
+    """Qué se dice del actor, separando audiencia de medios."""
+
+    actor: str
+    documents_analyzed: int = 0
+    audience: StanceBreakdown = Field(default_factory=StanceBreakdown)
+    media: StanceBreakdown = Field(default_factory=StanceBreakdown)
+    duels: list[PreferenceDuel] = Field(default_factory=list)
+    quotes: list[OpinionQuote] = Field(default_factory=list)
+    top_reasons: list[str] = Field(default_factory=list)
+    classifier: str = "lexicon"
+
+    @property
+    def reliable(self) -> bool:
+        """Si hay pocas posturas explícitas, los porcentajes no significan nada."""
+        return self.combined.opinionated >= MIN_OPINIONATED_MENTIONS
+
+    @property
+    def sample_note(self) -> str:
+        if self.reliable:
+            return ""
+        return (
+            f"Muestra insuficiente: solo {self.combined.opinionated} menciones con postura "
+            f"explícita (mínimo {MIN_OPINIONATED_MENTIONS} para interpretar porcentajes). "
+            "Amplía el periodo o agrega fuentes."
+        )
+
+    @property
+    def bias_note(self) -> str:
+        """Advierte cuando el conteo por palabras produce un resultado sospechoso.
+
+        El léxico reconoce los elogios directos mucho mejor que las críticas
+        irónicas, así que un resultado unánime suele ser un artefacto del método.
+        """
+        if self.classifier != "lexicon" or not self.reliable:
+            return ""
+        combined = self.combined
+        if combined.favorable_share >= 90 or combined.critical_share >= 90:
+            return (
+                "Resultado casi unánime obtenido por conteo de palabras, que no detecta "
+                "ironía ni sarcasmo: revisa las citas antes de darlo por bueno."
+            )
+        return ""
+
+    @property
+    def combined(self) -> StanceBreakdown:
+        return StanceBreakdown(
+            favorable=self.audience.favorable + self.media.favorable,
+            critica=self.audience.critica + self.media.critica,
+            neutra=self.audience.neutra + self.media.neutra,
+        )
+
+
 class CoverageMetrics(BaseModel):
     documents_discovered: int = 0
     documents_included: int = 0
@@ -198,6 +333,7 @@ class AnalysisReport(BaseModel):
     narratives: list[NarrativeInsight] = Field(default_factory=list)
     trends: list[dict[str, Any]] = Field(default_factory=list)
     sentiment: dict[str, Any] = Field(default_factory=dict)
+    opinion: list[OpinionAnalysis] = Field(default_factory=list)
     geography: dict[str, Any] = Field(default_factory=dict)
     clusters: list[StoryCluster] = Field(default_factory=list)
     documents: list[SourceDocument] = Field(default_factory=list)

@@ -184,17 +184,56 @@ def _reddit_from_rss(query: str, request: AnalysisRequest) -> list[SourceDocumen
     return docs
 
 
-def collect_reddit(request: AnalysisRequest, *, limit: int = 25) -> list[SourceDocument]:
+def opinion_queries(request: AnalysisRequest) -> list[str]:
+    """Consultas orientadas a debate, no a titulares.
+
+    Buscar solo el nombre trae notas de prensa; para saber qué opina la gente hay
+    que buscar las formas en que se expresa una preferencia.
+    """
+    topic = (request.topic or "").strip()
+    if not topic:
+        return []
+    config = request.configuration or {}
+    raw_rivals = config.get("rivals") or config.get("compare_with") or []
+    if isinstance(raw_rivals, str):
+        raw_rivals = raw_rivals.replace(",", "\n").split("\n")
+    rivals = [r.strip() for r in raw_rivals if isinstance(r, str) and r.strip()]
+
+    queries = [f"{topic} opinión", f"{topic} mejor"]
+    for rival in rivals[:2]:
+        queries.append(f"{topic} vs {rival}")
+        queries.append(f"{topic} better than {rival}")
+    return queries
+
+
+def collect_reddit(
+    request: AnalysisRequest, *, limit: int = 25, delay_seconds: float = 5.0
+) -> list[SourceDocument]:
     """RSS primero: Reddit bloquea search.json y aplica rate limit agresivo."""
-    query = f"{request.topic} Chile"
-    try:
-        return _reddit_from_rss(query, request)
-    except Exception as rss_exc:
-        logger.info("Reddit RSS no disponible (%s); intento JSON.", rss_exc)
+    import time
+
+    queries = [f"{request.topic} {request.territory_label}".strip(), *opinion_queries(request)]
+    docs: list[SourceDocument] = []
+    seen: set[str] = set()
+    last_error: Exception | None = None
+    for index, query in enumerate(queries[:5]):
+        if index:
+            time.sleep(delay_seconds)
+        try:
+            for doc in _reddit_from_rss(query, request):
+                if doc.url not in seen:
+                    seen.add(doc.url)
+                    docs.append(doc)
+        except Exception as exc:
+            last_error = exc
+            logger.info("Reddit RSS falló para «%s»: %s", query[:40], exc)
+    if docs:
+        return docs
+    logger.info("Reddit RSS no disponible (%s); intento JSON.", last_error)
+    query = f"{request.topic} {request.territory_label}".strip()
 
     q = quote_plus(query)
     url = f"https://www.reddit.com/search.json?q={q}&sort=new&limit={limit}&t=year"
-    docs: list[SourceDocument] = []
     with httpx.Client(
         headers={"User-Agent": BROWSER_UA}, timeout=25.0, follow_redirects=True
     ) as client:
@@ -523,28 +562,41 @@ def collect_social_from_articles(
     return docs
 
 
+# public.api.bsky.app responde 403 a agentes de navegador; api.bsky.app acepta un UA propio.
+BSKY_HOSTS = ("api.bsky.app", "public.api.bsky.app")
+API_UA = "BoletinesInformativos/1.0 (+https://github.com/RaimundoIbieta/Boletines-Informativos)"
+
+
 def collect_bluesky(request: AnalysisRequest, *, limit: int = 25) -> list[SourceDocument]:
     """Busca en Bluesky por tema y por actor. Propaga el error si la API rechaza."""
-    queries = [request.topic, *[a for a in request.actors[:3] if a.strip()]]
+    queries = [
+        request.topic,
+        *[a for a in request.actors[:2] if a.strip()],
+        *opinion_queries(request),
+    ]
     posts: list[dict] = []
     last_error: Exception | None = None
+    working_host: str | None = None
     with httpx.Client(
-        headers={"User-Agent": BROWSER_UA, "Accept": "application/json"},
+        headers={"User-Agent": API_UA, "Accept": "application/json"},
         timeout=25.0,
         follow_redirects=True,
     ) as client:
         for query in queries:
-            url = (
-                "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
-                f"?q={quote_plus(query)}&limit={limit}&lang=es"
-            )
-            try:
-                resp = client.get(url)
-                resp.raise_for_status()
-                posts.extend(resp.json().get("posts") or [])
-            except Exception as exc:
-                last_error = exc
-                logger.warning("Bluesky falló (%s): %s", query[:30], exc)
+            for host in (working_host,) if working_host else BSKY_HOSTS:
+                url = (
+                    f"https://{host}/xrpc/app.bsky.feed.searchPosts"
+                    f"?q={quote_plus(query)}&limit={limit}&lang=es"
+                )
+                try:
+                    resp = client.get(url)
+                    resp.raise_for_status()
+                    posts.extend(resp.json().get("posts") or [])
+                    working_host = host
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning("Bluesky %s falló (%s): %s", host, query[:30], exc)
     if not posts and last_error is not None:
         # Sin esto el informe diría "sin resultados" cuando en realidad la API nos bloqueó.
         raise RuntimeError(f"Bluesky no respondió: {last_error}")
@@ -646,6 +698,134 @@ def collect_mastodon(request: AnalysisRequest, *, limit: int = 20) -> list[Sourc
                 content_hash=content_hash(text),
                 engagement={"favourites": st.get("favourites_count"), "reblogs": st.get("reblogs_count")},
             )
+        )
+    return docs
+
+
+def _strip_html(raw: str) -> str:
+    import html as html_mod
+
+    text = html_mod.unescape(html_mod.unescape(raw or ""))
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def parse_reddit_comment_feed(xml: str) -> list[dict]:
+    """Extrae autor, texto y enlace de cada comentario del RSS de un hilo."""
+    entries = re.findall(r"<entry>(.*?)</entry>", xml, re.S)
+    out: list[dict] = []
+    for entry in entries:
+        author = re.search(r"<name>(.*?)</name>", entry)
+        content = re.search(r'<content type="html">(.*?)</content>', entry, re.S)
+        link = re.search(r'<link href="([^"]+)"', entry)
+        updated = re.search(r"<updated>(.*?)</updated>", entry)
+        text = _strip_html(content.group(1)) if content else ""
+        if not text:
+            continue
+        out.append(
+            {
+                "author": (author.group(1) if author else "").strip(),
+                "text": text,
+                "url": (link.group(1) if link else "").strip(),
+                "updated": (updated.group(1) if updated else "").strip(),
+            }
+        )
+    return out
+
+
+def collect_reddit_comments(
+    request: AnalysisRequest,
+    threads: list[SourceDocument],
+    *,
+    max_threads: int = 6,
+    per_thread: int = 40,
+    delay_seconds: float = 6.0,
+) -> list[SourceDocument]:
+    """Baja los comentarios de los hilos encontrados: es la opinión de la audiencia.
+
+    Reddit limita fuerte por IP, así que se recorren pocos hilos con pausas y se
+    prioriza los que tienen más discusión.
+    """
+    import time
+
+    candidates = [
+        d
+        for d in threads
+        if d.source_type == "reddit" and "/comments/" in (d.url or "")
+        and (d.metadata or {}).get("kind") != "comment"
+    ]
+    candidates.sort(
+        key=lambda d: (d.engagement or {}).get("num_comments") or 0, reverse=True
+    )
+    candidates = candidates[:max_threads]
+    if not candidates:
+        return []
+
+    docs: list[SourceDocument] = []
+    failures = 0
+    with httpx.Client(
+        headers={"User-Agent": BROWSER_UA},
+        timeout=25.0,
+        follow_redirects=True,
+    ) as client:
+        for index, thread in enumerate(candidates):
+            if index:
+                time.sleep(delay_seconds)
+            base = (thread.url or "").split("?")[0].rstrip("/")
+            try:
+                resp = client.get(f"{base}.rss?limit={per_thread}&sort=top")
+                if resp.status_code == 429:
+                    time.sleep(delay_seconds * 2)
+                    resp = client.get(f"{base}.rss?limit={per_thread}&sort=top")
+                resp.raise_for_status()
+                comments = parse_reddit_comment_feed(resp.text)
+            except Exception as exc:
+                failures += 1
+                logger.warning("Comentarios de Reddit fallaron (%s): %s", base[:60], exc)
+                continue
+
+            # El primer bloque del feed es el post original, que ya viene como documento.
+            for comment in comments[1:]:
+                text = comment["text"]
+                if len(text) < 15:
+                    continue
+                author = comment["author"].lstrip("/").replace("u/", "")
+                if author.lower() in {"automoderator", "[deleted]"}:
+                    continue
+                published = None
+                if comment["updated"]:
+                    try:
+                        published = datetime.fromisoformat(
+                            comment["updated"].replace("Z", "+00:00")
+                        )
+                    except Exception:
+                        published = None
+                url = comment["url"] or thread.url
+                docs.append(
+                    SourceDocument(
+                        id=_doc_id("rdc", url or text[:80]),
+                        source_type="reddit",
+                        title=text[:120],
+                        url=url,
+                        canonical_url=canonical_url(url),
+                        publisher=thread.publisher or "Reddit",
+                        author=author,
+                        published_at=published or thread.published_at,
+                        excerpt=text[:400],
+                        text=text,
+                        content_hash=content_hash(text),
+                        metadata={
+                            "kind": "comment",
+                            "voice": "audience",
+                            "thread_title": thread.title,
+                            "thread_url": thread.url,
+                        },
+                    )
+                )
+    if not docs and failures:
+        raise RuntimeError(
+            f"Reddit no entregó comentarios ({failures} hilos con error de límite de tasa)."
         )
     return docs
 

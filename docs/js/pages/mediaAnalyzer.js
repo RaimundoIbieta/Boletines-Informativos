@@ -161,6 +161,10 @@ export async function renderMediaAnalyzerNew(container) {
       <input id="topic" placeholder="Ej. quién será el próximo presidente de Chile" />
       <label>Actores / objetivos de sentimiento (uno por línea)</label>
       <textarea id="actors" placeholder="José Antonio Kast&#10;candidato A&#10;candidato B"></textarea>
+      <label>Comparar con (uno por línea)</label>
+      <textarea id="rivals" placeholder="Lionel Messi&#10;Neymar"></textarea>
+      <p class="muted">Mide quién sale favorecido cuando la gente compara al actor con estos
+      nombres («es mejor que», «prefiero a», «X &gt; Y») y cuenta las preferencias.</p>
       <div class="grid grid-3">
         <div>
           <label>Nivel territorial</label>
@@ -293,6 +297,12 @@ export async function renderMediaAnalyzerNew(container) {
         .map((x) => x.trim().replace(/^@/, ''))
         .filter(Boolean)
         .slice(0, 12);
+      const rivals = container
+        .querySelector('#rivals')
+        .value.split('\n')
+        .map((x) => x.trim())
+        .filter(Boolean)
+        .slice(0, 4);
       const urls = container
         .querySelector('#urls')
         .value.split('\n')
@@ -318,6 +328,7 @@ export async function renderMediaAnalyzerNew(container) {
           default_window_days: 30,
           max_years: 2,
           x_accounts: xAccounts,
+          rivals,
         },
       });
       if (rpcErr) {
@@ -415,6 +426,94 @@ export async function renderMediaAnalyzerDetail(container, id) {
   const trends = result?.trends || [];
   const topPlaces = Object.entries(geography.top_places || {});
   const platforms = coverage.platforms || [];
+  const opinion = result?.opinion || [];
+
+  const stanceShares = (b = {}) => {
+    const favorable = b.favorable || 0;
+    const critica = b.critica || 0;
+    const opinionated = favorable + critica;
+    return {
+      favorable,
+      critica,
+      neutra: b.neutra || 0,
+      opinionated,
+      favShare: opinionated ? Math.round((100 * favorable) / opinionated) : 0,
+      critShare: opinionated ? Math.round((100 * critica) / opinionated) : 0,
+    };
+  };
+
+  const opinionHtml = opinion
+    .map((op) => {
+      const aud = stanceShares(op.audience);
+      const med = stanceShares(op.media);
+      const opinionated = aud.opinionated + med.opinionated;
+      const reliable = opinionated >= 10;
+      const bar = !reliable
+        ? `<p style="color:#b45309">Muestra insuficiente: solo ${opinionated} menciones con postura
+           explícita (mínimo 10 para interpretar porcentajes). Amplía el periodo o agrega fuentes.</p>`
+        : aud.opinionated
+          ? `<div style="display:flex;height:26px;border-radius:6px;overflow:hidden;font-size:12px;color:#fff;margin:8px 0">
+             <div style="width:${aud.favShare}%;background:#15803d;display:flex;align-items:center;justify-content:center">${aud.favShare}% a favor</div>
+             <div style="width:${aud.critShare}%;background:#b91c1c;display:flex;align-items:center;justify-content:center">${aud.critShare}% crítica</div>
+           </div>`
+          : '<p class="muted">La audiencia no dejó posturas explícitas en esta muestra.</p>';
+      const combinedFav = (aud.favorable || 0) + (med.favorable || 0);
+      const combinedCrit = (aud.critica || 0) + (med.critica || 0);
+      const unanimous =
+        reliable &&
+        op.classifier !== 'gemini' &&
+        (combinedCrit === 0 || combinedFav === 0) &&
+        combinedFav + combinedCrit > 0;
+      const biasNote = unanimous
+        ? `<p style="color:#b45309">Resultado casi unánime obtenido por conteo de palabras, que no
+           detecta ironía ni sarcasmo: revisa las citas antes de darlo por bueno.</p>`
+        : '';
+      const duels = (op.duels || [])
+        .map((d) => {
+          const total = (d.actor_votes || 0) + (d.rival_votes || 0);
+          const share = total ? Math.round((100 * (d.actor_votes || 0)) / total) : 0;
+          const conclusive = total >= 5;
+          const winner = !conclusive
+            ? 'sin evidencia suficiente'
+            : d.actor_votes === d.rival_votes
+              ? 'empate'
+              : d.actor_votes > d.rival_votes
+                ? d.actor
+                : d.rival;
+          return `<tr>
+            <td>${escapeHtml(d.actor)} vs ${escapeHtml(d.rival)}</td>
+            <td>${escapeHtml(d.actor_votes)} – ${escapeHtml(d.rival_votes)}</td>
+            <td>${conclusive ? `${share}% para ${escapeHtml(d.actor)}` : `solo ${total} comparaciones`}</td>
+            <td><strong>${escapeHtml(winner)}</strong></td>
+          </tr>`;
+        })
+        .join('');
+      const quotes = (op.quotes || [])
+        .map(
+          (q) => `<li>
+            <span class="chip">${q.stance === 'favorable' ? 'a favor' : 'crítica'}</span>
+            <span class="muted">${q.voice === 'audience' ? 'audiencia' : 'medio'} · ${escapeHtml(q.source_type || '')}</span><br>
+            ${escapeHtml(q.text || '')}
+            ${q.url ? `<a href="${escapeHtml(q.url)}" target="_blank" rel="noopener">ver</a>` : ''}
+          </li>`
+        )
+        .join('');
+      return `
+        <h3>${escapeHtml(op.actor)}</h3>
+        <p class="muted">${escapeHtml(op.documents_analyzed || 0)} menciones analizadas ·
+          audiencia: ${aud.favorable} a favor / ${aud.critica} críticas / ${aud.neutra} sin postura ·
+          medios: ${med.favorable} / ${med.critica} / ${med.neutra}</p>
+        ${bar}
+        ${biasNote}
+        ${
+          duels
+            ? `<table class="table"><thead><tr><th>Comparación</th><th>Votos</th><th>Preferencia</th><th>Gana</th></tr></thead><tbody>${duels}</tbody></table>`
+            : '<p class="muted">Sin comparaciones explícitas con otros actores en esta muestra.</p>'
+        }
+        ${quotes ? `<ul>${quotes}</ul>` : ''}
+      `;
+    })
+    .join('');
 
   container.innerHTML = `
     <h1 class="page-title">${escapeHtml(req.topic)}</h1>
@@ -453,6 +552,16 @@ export async function renderMediaAnalyzerDetail(container, id) {
           .join('')}</ul>
       </div>
     </div>
+    ${
+      opinion.length
+        ? `<div class="card" style="margin-top:12px">
+      <h2>Qué se dice del actor</h2>
+      ${opinionHtml}
+      <p class="muted">Mide la conversación observada en las fuentes accesibles, separando la voz
+      de la audiencia de la de los medios. No es una encuesta representativa de la población.</p>
+    </div>`
+        : ''
+    }
     <div class="card" style="margin-top:12px">
       <h2>Actores</h2>
       <table class="table"><thead><tr><th>Actor</th><th>Menciones</th><th>Score</th><th>Citas</th></tr></thead>
