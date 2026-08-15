@@ -50,6 +50,55 @@ def write_markdown(report: AnalysisReport, path: Path) -> Path:
         )
         for q in a.sample_quotes[:2]:
             lines.append(f"  - “{q}”")
+    if report.opinion:
+        lines.extend(["", "## Qué se dice del actor", ""])
+        for op in report.opinion:
+            aud, med = op.audience, op.media
+            lines.append(f"### {op.actor}")
+            lines.append(
+                f"Menciones analizadas: {op.documents_analyzed}. "
+                f"Audiencia: {aud.favorable} a favor, {aud.critica} críticas, "
+                f"{aud.neutra} sin postura. Medios: {med.favorable} a favor, "
+                f"{med.critica} críticas, {med.neutra} sin postura."
+            )
+            if op.sample_note:
+                lines.append(f"- ⚠️ {op.sample_note}")
+            elif op.bias_note:
+                lines.append(f"- ⚠️ {op.bias_note}")
+            if not op.sample_note and aud.opinionated:
+                lines.append(
+                    f"- **Balance de audiencia:** {aud.favorable_share:.0f}% favorable / "
+                    f"{aud.critical_share:.0f}% crítica sobre {aud.opinionated} menciones con opinión."
+                )
+            for duel in op.duels:
+                if duel.conclusive:
+                    lines.append(
+                        f"- **{duel.actor} vs {duel.rival}:** {duel.actor_votes} a "
+                        f"{duel.rival_votes} ({duel.actor_share:.0f}% para {duel.actor}). "
+                        f"Gana: {duel.winner}."
+                    )
+                else:
+                    lines.append(
+                        f"- **{duel.actor} vs {duel.rival}:** solo {duel.total} comparaciones "
+                        f"({duel.actor_votes} a {duel.rival_votes}); insuficiente para concluir."
+                    )
+            lines.append(
+                f"- **Clasificador:** {'modelo Gemini' if op.classifier == 'gemini' else 'léxico'}."
+            )
+            if op.top_reasons:
+                lines.append(f"- **Términos que definen la opinión:** {', '.join(op.top_reasons)}")
+            if op.quotes:
+                lines.append("")
+                lines.append("Citas de respaldo:")
+                for q in op.quotes:
+                    voice = "audiencia" if q.voice == "audience" else "medio"
+                    label = "a favor" if q.stance == "favorable" else "crítica"
+                    lines.append(f"  - [{label} · {voice} · {q.source_type}] “{q.text}” {q.url}")
+            lines.append("")
+        lines.append(
+            "_Este balance describe la conversación observada en las fuentes accesibles; "
+            "no es una encuesta representativa de la población._"
+        )
     lines.extend(["", "## Narrativas", ""])
     for n in report.narratives:
         lines.append(f"### {n.title}")
@@ -140,6 +189,69 @@ def write_html(report: AnalysisReport, path: Path) -> Path:
         for d in report.documents[:40]
         if d.url
     )
+    opinion_html = ""
+    if report.opinion:
+        blocks = []
+        for op in report.opinion:
+            aud = op.audience
+            bar = ""
+            if aud.opinionated:
+                bar = (
+                    "<div style='display:flex;height:22px;border-radius:6px;overflow:hidden;"
+                    "font:12px system-ui;color:#fff;margin:8px 0'>"
+                    f"<div style='width:{aud.favorable_share}%;background:#15803d;text-align:center'>"
+                    f"{aud.favorable_share:.0f}% a favor</div>"
+                    f"<div style='width:{aud.critical_share}%;background:#b91c1c;text-align:center'>"
+                    f"{aud.critical_share:.0f}% crítica</div></div>"
+                )
+            duels = "".join(
+                (
+                    f"<li><strong>{d.actor} vs {d.rival}:</strong> {d.actor_votes} a "
+                    f"{d.rival_votes} ({d.actor_share:.0f}% para {d.actor}) · "
+                    f"gana <strong>{d.winner}</strong></li>"
+                )
+                if d.conclusive
+                else (
+                    f"<li><strong>{d.actor} vs {d.rival}:</strong> solo {d.total} "
+                    f"comparaciones ({d.actor_votes} a {d.rival_votes}); "
+                    "insuficiente para concluir.</li>"
+                )
+                for d in op.duels
+            )
+            quote_items = []
+            for q in op.quotes:
+                stance_label = "a favor" if q.stance == "favorable" else "crítica"
+                voice_label = "audiencia" if q.voice == "audience" else "medio"
+                link = f'<a href="{q.url}">ver</a>' if q.url else ""
+                quote_items.append(
+                    f"<li><em>{stance_label}</em> · {voice_label} · {q.source_type}<br>"
+                    f"“{q.text}” {link}</li>"
+                )
+            quotes = "".join(quote_items)
+            blocks.append(
+                f"<h3>{op.actor}</h3>"
+                f"<p class='muted'>{op.documents_analyzed} menciones analizadas · "
+                f"audiencia: {aud.favorable} a favor / {aud.critica} críticas / {aud.neutra} sin postura "
+                f"· medios: {op.media.favorable} / {op.media.critica} / {op.media.neutra}</p>"
+                + (
+                    f"<p style='color:#b45309'><strong>Aviso:</strong> {op.sample_note}</p>"
+                    if op.sample_note
+                    else bar
+                )
+                + (
+                    f"<p style='color:#b45309'><strong>Aviso:</strong> {op.bias_note}</p>"
+                    if op.bias_note
+                    else ""
+                )
+                + (f"<ul>{duels}</ul>" if duels else "")
+                + (f"<ul>{quotes}</ul>" if quotes else "")
+            )
+        opinion_html = (
+            "<div class='card'><h2>Qué se dice del actor</h2>"
+            + "".join(blocks)
+            + "<p class='muted'>Describe la conversación observada en las fuentes accesibles; "
+            "no es una encuesta representativa de la población.</p></div>"
+        )
     html = f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"><title>Radiografía · {report.topic}</title>
 <style>
@@ -151,6 +263,7 @@ h1,h2{{font-family:system-ui,sans-serif}} .muted{{color:#64748b}} .card{{backgro
 <div class="card"><h2>Resumen</h2><p>{report.executive_summary}</p></div>
 <div class="card"><h2>Hallazgos</h2><ul>{findings_html}</ul></div>
 <div class="card"><h2>Actores</h2><ul>{actors_html}</ul></div>
+{opinion_html}
 <div class="card"><h2>Cobertura por plataforma</h2>{platforms_html}</div>
 <div class="card"><h2>Advertencias</h2><ul>{warnings_html}</ul></div>
 <div class="card"><h2>Fuentes</h2><ul>{sources_html}</ul></div>
@@ -223,6 +336,49 @@ def write_pdf(report: AnalysisReport, path: Path) -> Path:
     write_block("Actores", bold=True, size=12, h=8)
     for a in report.actors[:12]:
         write_block(f"- {a.name}: {a.mentions} menciones, score {a.average_score:+.2f}")
+    if report.opinion:
+        pdf.ln(1)
+        write_block("Que se dice del actor", bold=True, size=12, h=8)
+        for op in report.opinion:
+            aud = op.audience
+            write_block(f"{op.actor} ({op.documents_analyzed} menciones analizadas)", bold=True)
+            write_block(
+                f"- Audiencia: {aud.favorable} a favor, {aud.critica} criticas, "
+                f"{aud.neutra} sin postura."
+            )
+            if op.sample_note:
+                write_block(f"- AVISO: {op.sample_note}")
+            elif op.bias_note:
+                write_block(f"- AVISO: {op.bias_note}")
+            if not op.sample_note and aud.opinionated:
+                write_block(
+                    f"- Balance: {aud.favorable_share:.0f}% favorable / "
+                    f"{aud.critical_share:.0f}% critica de {aud.opinionated} con opinion."
+                )
+            write_block(
+                f"- Medios: {op.media.favorable} a favor, {op.media.critica} criticas, "
+                f"{op.media.neutra} sin postura."
+            )
+            for duel in op.duels:
+                if duel.conclusive:
+                    write_block(
+                        f"- {duel.actor} vs {duel.rival}: {duel.actor_votes} a "
+                        f"{duel.rival_votes} ({duel.actor_share:.0f}% para {duel.actor}). "
+                        f"Gana: {duel.winner}."
+                    )
+                else:
+                    write_block(
+                        f"- {duel.actor} vs {duel.rival}: solo {duel.total} comparaciones "
+                        f"({duel.actor_votes} a {duel.rival_votes}); insuficiente para concluir."
+                    )
+            for q in op.quotes[:4]:
+                stance = "a favor" if q.stance == "favorable" else "critica"
+                voice = "audiencia" if q.voice == "audience" else "medio"
+                write_block(f'  [{stance} / {voice}] "{q.text[:180]}"')
+        write_block(
+            "Describe la conversacion observada en las fuentes accesibles; "
+            "no es una encuesta representativa."
+        )
     pdf.ln(1)
     write_block("Cobertura por plataforma", bold=True, size=12, h=8)
     if report.coverage.platforms:

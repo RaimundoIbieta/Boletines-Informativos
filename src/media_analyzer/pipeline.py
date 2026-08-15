@@ -9,6 +9,7 @@ from media_analyzer.connectors.collect import (
     collect_mastodon,
     collect_news,
     collect_reddit,
+    collect_reddit_comments,
     collect_social_from_articles,
     collect_x_timelines,
     collect_youtube,
@@ -24,10 +25,12 @@ from media_analyzer.models import (
     AnalysisReport,
     AnalysisRequest,
     CoverageMetrics,
+    OpinionAnalysis,
     SourceDocument,
     StoryCluster,
 )
 from media_analyzer.normalization import content_hash
+from media_analyzer.opinion import build_opinion_analysis
 from media_analyzer.sentiment import analyze_with_llm
 from media_analyzer.validation import month_windows
 
@@ -80,6 +83,87 @@ PLATFORM_METHODS = {
     "url": ("user_supplied", "Enlaces que entregaste en la solicitud."),
     "file": ("user_supplied", "Archivos que subiste."),
 }
+
+
+def _opinion_targets(request: AnalysisRequest) -> tuple[list[str], list[str]]:
+    """Actores a evaluar y rivales con los que se los compara."""
+    config = request.configuration or {}
+    actors = [a.strip() for a in (request.actors or []) if a.strip()]
+    if not actors:
+        actors = [request.topic.strip()]
+    raw_rivals = config.get("rivals") or config.get("compare_with") or []
+    if isinstance(raw_rivals, str):
+        raw_rivals = [r.strip() for r in raw_rivals.replace(",", "\n").split("\n")]
+    rivals = [r.strip() for r in raw_rivals if isinstance(r, str) and r.strip()]
+    # Sin rivales explícitos, los demás actores del pedido cumplen ese rol.
+    if not rivals and len(actors) > 1:
+        rivals = actors[1:]
+    return actors[:3], rivals[:4]
+
+
+def _opinion_analyses(
+    request: AnalysisRequest,
+    documents: list[SourceDocument],
+    *,
+    gemini_api_key: str = "",
+    gemini_model: str = "gemini-2.0-flash",
+) -> list[OpinionAnalysis]:
+    actors, rivals = _opinion_targets(request)
+    analyses: list[OpinionAnalysis] = []
+    for actor in actors:
+        others = [r for r in rivals if r.lower() != actor.lower()]
+        try:
+            analysis = build_opinion_analysis(
+                documents,
+                actor,
+                rivals=others,
+                gemini_api_key=gemini_api_key,
+                gemini_model=gemini_model,
+            )
+        except Exception as exc:
+            logger.warning("Análisis de opinión falló para %s: %s", actor, exc)
+            continue
+        if analysis.documents_analyzed:
+            analyses.append(analysis)
+    return analyses
+
+
+def _opinion_findings(analyses: list[OpinionAnalysis]) -> list[str]:
+    findings: list[str] = []
+    for analysis in analyses[:2]:
+        audience = analysis.audience
+        if not analysis.reliable:
+            findings.append(
+                f"Sobre {analysis.actor} no hay base suficiente para medir opinión: "
+                f"{analysis.combined.opinionated} menciones con postura explícita en "
+                f"{analysis.documents_analyzed} analizadas."
+            )
+        elif audience.opinionated:
+            findings.append(
+                f"En la conversación de audiencia sobre {analysis.actor}, "
+                f"{audience.favorable_share:.0f}% de las menciones con postura son favorables "
+                f"y {audience.critical_share:.0f}% críticas "
+                f"({audience.opinionated} menciones con opinión de {audience.total} analizadas)."
+            )
+        for duel in analysis.duels[:2]:
+            if not duel.conclusive:
+                findings.append(
+                    f"Entre {duel.actor} y {duel.rival} solo se hallaron {duel.total} "
+                    f"comparaciones explícitas ({duel.actor_votes} a {duel.rival_votes}): "
+                    "insuficiente para declarar una preferencia."
+                )
+            elif duel.winner == "empate":
+                findings.append(
+                    f"En las comparaciones explícitas {duel.actor} vs {duel.rival} hay empate "
+                    f"({duel.actor_votes} a {duel.rival_votes} de {duel.total})."
+                )
+            else:
+                findings.append(
+                    f"En las comparaciones explícitas entre {duel.actor} y {duel.rival}, "
+                    f"gana {duel.winner} con {duel.actor_share:.0f}% de las menciones a favor "
+                    f"de {duel.actor} sobre {duel.total} comparaciones encontradas."
+                )
+    return findings
 
 
 def _x_handles(request: AnalysisRequest, documents: list[SourceDocument]) -> list[str]:
@@ -262,6 +346,16 @@ def run_analysis(
         else:
             logger.info("X: sin cuentas indicadas; solo posts citados por medios.")
 
+    # Comentarios de Reddit: la opinión de personas, no de cuentas de medios.
+    if "reddit" in enabled and documents:
+        try:
+            comment_docs = collect_reddit_comments(request, documents)
+            documents.extend(comment_docs)
+            logger.info("Comentarios de Reddit → %s opiniones de audiencia", len(comment_docs))
+        except Exception as exc:
+            errors["reddit_comentarios"] = str(exc)[:300]
+            logger.warning("Comentarios de Reddit error: %s", exc)
+
     if any(d.source_type == "tiktok" for d in documents):
         try:
             enriched = enrich_with_oembed(documents)
@@ -334,6 +428,17 @@ def run_analysis(
             )
         )
     report.clusters = clusters
+    report.opinion = _opinion_analyses(
+        request,
+        documents,
+        gemini_api_key=gemini_api_key,
+        gemini_model=gemini_model,
+    )
+    if report.opinion:
+        report.findings = [*_opinion_findings(report.opinion), *report.findings]
+        for analysis in report.opinion:
+            if analysis.bias_note:
+                report.warnings.append(f"{analysis.actor}: {analysis.bias_note}")
     report.geography = {
         "mentions": [
             {
