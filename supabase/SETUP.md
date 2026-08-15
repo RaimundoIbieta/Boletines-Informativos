@@ -4,7 +4,7 @@
 
 1. https://supabase.com/dashboard/project/ryznnccmqyvujrlhriml/sql/new  
 2. Ejecuta `schema.sql`  
-3. Si aplica: `update_prices.sql`, `seed_pae.sql`, **`send_requests.sql`** (botón Probar envío), **`period_selection.sql`** (rango de noticias configurable), **`period_include_send_day.sql`** (que el rango llegue hasta el día del envío) y **`semimonthly_bulletins.sql`** (agenda 1/15 y secciones)
+3. Si aplica: `update_prices.sql`, `seed_pae.sql`, **`send_requests.sql`** (botón Probar envío), **`period_selection.sql`** (rango de noticias configurable), **`period_include_send_day.sql`** (que el rango llegue hasta el día del envío), **`semimonthly_bulletins.sql`** (agenda 1/15 y secciones) y **`media_analysis.sql`** (Analizador de Medios)
 
 ## 2. Auth
 
@@ -58,3 +58,26 @@ Para que use Gemini (y no solo el generador local):
 2. `supabase login` y `supabase link --project-ref ryznnccmqyvujrlhriml`  
 3. `supabase secrets set GEMINI_API_KEY=tu_clave`  
 4. `supabase functions deploy suggest-bulletin`
+
+## 6. Analizador de Medios (piloto admin)
+
+Sección privada `#/analizador` (solo superadmin). Resultados en Storage privado; **no** se publican en GitHub Pages.
+
+1. Ejecuta `media_analysis.sql` en el SQL Editor (crea tablas, RLS, buckets y RPC).
+2. Secrets de GitHub Actions (además de los de boletines):
+   - `GEMINI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL` (ya usados)
+3. Secrets de Edge Functions (opcional, para disparo inmediato):
+   - `supabase secrets set GITHUB_PAT=ghp_...` (token con `actions:write`)
+   - `supabase secrets set GITHUB_REPO=RaimundoIbieta/Boletines-Informativos`
+4. Despliega la función:
+   - `supabase functions deploy queue-media-analysis`
+5. Workflow **Análisis de medios (bajo demanda)** corre cada 15 min y también por `workflow_dispatch`.
+6. Sin `GITHUB_PAT`, la solicitud queda `pending` y el cron la recoge igual.
+
+### Probar el piloto
+
+1. Entra como admin → **Analizador** → **Nuevo análisis**
+2. Tema ejemplo: `próximo presidente de Chile`
+3. Actores: candidatos relevantes (uno por línea)
+4. Territorio: Nacional · Periodo: últimos 30 días
+5. Revisa panel, citas, cobertura por conector y export PDF/CSV/JSON

@@ -11,6 +11,11 @@ import { renderAuthButton, renderLogin } from './pages/login.js';
 import { renderPlan, renderAdmin } from './pages/admin.js';
 import { renderApp, renderBulletinEditor } from './pages/bulletins.js';
 import { renderArchive } from './pages/archive.js';
+import {
+  renderMediaAnalyzerList,
+  renderMediaAnalyzerNew,
+  renderMediaAnalyzerDetail,
+} from './pages/mediaAnalyzer.js';
 import { APP_CONFIG } from './config.js';
 
 const view = document.getElementById('view');
@@ -24,7 +29,10 @@ function renderNav() {
   if (u) {
     links.push(`<a href="#/app">Mis boletines</a>`);
     links.push(`<a href="#/archivo">Archivo</a>`);
-    if (isSuperAdmin()) links.push(`<a href="#/admin">Admin</a>`);
+    if (isSuperAdmin()) {
+      links.push(`<a href="#/analizador">Analizador</a>`);
+      links.push(`<a href="#/admin">Admin</a>`);
+    }
   } else {
     links.push(`<a href="#/login">Entrar</a>`);
   }
@@ -68,6 +76,12 @@ async function renderRoute(route) {
   if (name === 'admin') return renderAdmin(view);
   if (name === 'app') return renderApp(view);
   if (name === 'archivo') return renderArchive(view);
+  if (name === 'analizador') {
+    const sub = route.parts[1];
+    if (!sub) return renderMediaAnalyzerList(view);
+    if (sub === 'nuevo') return renderMediaAnalyzerNew(view);
+    return renderMediaAnalyzerDetail(view, sub);
+  }
   if (name === 'boletin') return renderBulletinEditor(view, route.parts[1] || 'nuevo');
   return renderHome();
 }

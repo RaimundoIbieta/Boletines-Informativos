@@ -1,0 +1,34 @@
+{
+  "regions": [
+    {"code": "15", "name": "Arica y Parinacota", "aliases": ["arica"]},
+    {"code": "01", "name": "Tarapacá", "aliases": ["tarapaca", "iquique"]},
+    {"code": "02", "name": "Antofagasta", "aliases": ["calama"]},
+    {"code": "03", "name": "Atacama", "aliases": ["copiapo"]},
+    {"code": "04", "name": "Coquimbo", "aliases": ["la serena"]},
+    {"code": "05", "name": "Valparaíso", "aliases": ["valparaiso", "vina del mar"]},
+    {"code": "13", "name": "Metropolitana de Santiago", "aliases": ["rm", "santiago", "region metropolitana"]},
+    {"code": "06", "name": "O'Higgins", "aliases": ["ohiggins", "rancagua"]},
+    {"code": "07", "name": "Maule", "aliases": ["talca"]},
+    {"code": "16", "name": "Ñuble", "aliases": ["nuble", "chillan"]},
+    {"code": "08", "name": "Biobío", "aliases": ["biobio", "concepcion"]},
+    {"code": "09", "name": "La Araucanía", "aliases": ["araucania", "temuco"]},
+    {"code": "14", "name": "Los Ríos", "aliases": ["los rios", "valdivia"]},
+    {"code": "10", "name": "Los Lagos", "aliases": ["puerto montt"]},
+    {"code": "11", "name": "Aysén", "aliases": ["aysen", "coyhaique"]},
+    {"code": "12", "name": "Magallanes", "aliases": ["punta arenas"]}
+  ],
+  "communes": [
+    {"code": "13101", "name": "Santiago", "region": "13", "aliases": []},
+    {"code": "13114", "name": "Las Condes", "region": "13", "aliases": []},
+    {"code": "13123", "name": "Providencia", "region": "13", "aliases": []},
+    {"code": "13127", "name": "Recoleta", "region": "13", "aliases": []},
+    {"code": "13119", "name": "Maipú", "region": "13", "aliases": ["maipu"]},
+    {"code": "13132", "name": "Puente Alto", "region": "13", "aliases": []},
+    {"code": "5101", "name": "Valparaíso", "region": "05", "aliases": ["valparaiso"]},
+    {"code": "5109", "name": "Viña del Mar", "region": "05", "aliases": ["vina del mar"]},
+    {"code": "8101", "name": "Concepción", "region": "08", "aliases": ["concepcion"]},
+    {"code": "9101", "name": "Temuco", "region": "09", "aliases": []},
+    {"code": "2101", "name": "Antofagasta", "region": "02", "aliases": []},
+    {"code": "15101", "name": "Arica", "region": "15", "aliases": []}
+  ]
+}
