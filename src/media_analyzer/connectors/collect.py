@@ -18,10 +18,33 @@ from media_analyzer.validation import validate_public_http_url
 
 logger = logging.getLogger(__name__)
 USER_AGENT = "MediaAnalyzer/1.0 (+https://github.com/RaimundoIbieta/Boletines-Informativos)"
+# Varias plataformas (Reddit, YouTube) rechazan agentes no-navegador.
+BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+)
 
 
 def _doc_id(prefix: str, key: str) -> str:
     return f"{prefix}_{hashlib.sha1(key.encode()).hexdigest()[:12]}"
+
+
+def _unwrap_redirect(link: str) -> str:
+    """Convierte redirecciones de buscador (bing apiclick, google news) en la URL del medio."""
+    if not link:
+        return link
+    try:
+        parsed = urlparse(link)
+    except Exception:
+        return link
+    host = (parsed.hostname or "").lower()
+    if "bing.com" in host or "google.com" in host:
+        from urllib.parse import parse_qs
+
+        target = (parse_qs(parsed.query).get("url") or [""])[0]
+        if target.startswith("http"):
+            return target
+    return link
 
 
 def _parse_date(entry: dict) -> datetime | None:
@@ -39,14 +62,20 @@ def _parse_date(entry: dict) -> datetime | None:
     return None
 
 
-def collect_news(request: AnalysisRequest, *, max_per_query: int = 12) -> list[SourceDocument]:
+def collect_news(
+    request: AnalysisRequest,
+    *,
+    max_per_query: int = 12,
+    queries: list[str] | None = None,
+) -> list[SourceDocument]:
     suffix = territory_query_suffix(request.territory_level, request.territory_label)
-    terms = [request.topic, *request.include_terms, *request.actors[:5]]
-    queries = []
-    for t in terms:
-        t = (t or "").strip()
-        if t:
-            queries.append(f"{t} {suffix}")
+    if queries is None:
+        terms = [request.topic, *request.include_terms, *request.actors[:5]]
+        queries = []
+        for t in terms:
+            t = (t or "").strip()
+            if t:
+                queries.append(f"{t} {suffix}")
     if not queries:
         queries = [f"{request.topic} Chile"]
 
@@ -70,7 +99,7 @@ def collect_news(request: AnalysisRequest, *, max_per_query: int = 12) -> list[S
                 if count >= max_per_query:
                     break
                 title = (entry.get("title") or "").strip()
-                link = (entry.get("link") or "").strip()
+                link = _unwrap_redirect((entry.get("link") or "").strip())
                 if not title or not link:
                     continue
                 try:
@@ -103,19 +132,75 @@ def collect_news(request: AnalysisRequest, *, max_per_query: int = 12) -> list[S
     return docs
 
 
-def collect_reddit(request: AnalysisRequest, *, limit: int = 25) -> list[SourceDocument]:
-    q = quote_plus(f"{request.topic} Chile")
-    url = f"https://www.reddit.com/search.json?q={q}&sort=new&limit={limit}&t=year"
-    headers = {"User-Agent": USER_AGENT}
+def _reddit_from_rss(query: str, request: AnalysisRequest) -> list[SourceDocument]:
+    """Reddit bloquea search.json desde varias IP; su RSS sigue abierto."""
+    url = f"https://www.reddit.com/search.rss?q={quote_plus(query)}&sort=new&t=month"
+    with httpx.Client(
+        headers={"User-Agent": BROWSER_UA},
+        timeout=25.0,
+        follow_redirects=True,
+    ) as client:
+        resp = client.get(url)
+        resp.raise_for_status()
+        feed = feedparser.parse(resp.text)
+
     docs: list[SourceDocument] = []
+    for entry in feed.entries:
+        title = (entry.get("title") or "").strip()
+        link = (entry.get("link") or "").strip()
+        if not title or not link:
+            continue
+        published = None
+        for key in ("published", "updated"):
+            raw = entry.get(key)
+            if not raw:
+                continue
+            try:
+                published = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                break
+            except Exception:
+                continue
+        if published:
+            day = published.date()
+            if day < request.period_start or day > request.period_end:
+                continue
+        text = re.sub(r"<[^>]+>", " ", entry.get("summary") or "").strip()
+        author = (entry.get("author") or "").strip()
+        docs.append(
+            SourceDocument(
+                id=_doc_id("reddit", link),
+                source_type="reddit",
+                title=title,
+                url=link,
+                canonical_url=canonical_url(link),
+                publisher="Reddit",
+                author=author,
+                published_at=published,
+                excerpt=(text or title)[:400],
+                text=text or title,
+                content_hash=content_hash(title + link),
+            )
+        )
+    return docs
+
+
+def collect_reddit(request: AnalysisRequest, *, limit: int = 25) -> list[SourceDocument]:
+    """RSS primero: Reddit bloquea search.json y aplica rate limit agresivo."""
+    query = f"{request.topic} Chile"
     try:
-        with httpx.Client(headers=headers, timeout=25.0, follow_redirects=True) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
-            children = (resp.json().get("data") or {}).get("children") or []
-    except Exception as exc:
-        logger.warning("Reddit falló: %s", exc)
-        return docs
+        return _reddit_from_rss(query, request)
+    except Exception as rss_exc:
+        logger.info("Reddit RSS no disponible (%s); intento JSON.", rss_exc)
+
+    q = quote_plus(query)
+    url = f"https://www.reddit.com/search.json?q={q}&sort=new&limit={limit}&t=year"
+    docs: list[SourceDocument] = []
+    with httpx.Client(
+        headers={"User-Agent": BROWSER_UA}, timeout=25.0, follow_redirects=True
+    ) as client:
+        resp = client.get(url)
+        resp.raise_for_status()
+        children = (resp.json().get("data") or {}).get("children") or []
 
     for child in children:
         data = child.get("data") or {}
@@ -154,65 +239,317 @@ def collect_reddit(request: AnalysisRequest, *, limit: int = 25) -> list[SourceD
     return docs
 
 
-def collect_youtube(request: AnalysisRequest, *, limit: int = 15) -> list[SourceDocument]:
-    """Descubrimiento liviano vía Bing News/Web no disponible; usa RSS de búsqueda DDG-like.
-    Fallback: feed de YouTube search via invidious-like no garantizado.
-    Usamos Bing RSS con site:youtube.com.
-    """
-    suffix = territory_query_suffix(request.territory_level, request.territory_label)
-    q = quote_plus(f"site:youtube.com {request.topic} {suffix}")
-    url = f"https://www.bing.com/news/search?q={q}&format=rss&setlang=es-CL&cc=CL"
-    headers = {"User-Agent": USER_AGENT}
-    docs: list[SourceDocument] = []
+_RELATIVE_UNITS = {
+    "minuto": 1 / 1440,
+    "hora": 1 / 24,
+    "día": 1,
+    "dia": 1,
+    "semana": 7,
+    "mes": 30,
+    "año": 365,
+    "ano": 365,
+}
+
+
+def _parse_relative_es(text: str) -> datetime | None:
+    """Convierte 'hace 3 semanas' / 'Emitido hace 5 meses' en fecha aproximada."""
+    if not text:
+        return None
+    m = re.search(r"hace\s+(\d+)\s+([a-záéíóúñ]+)", text.lower())
+    if not m:
+        return None
+    amount = int(m.group(1))
+    raw_unit = m.group(2)
+    # "meses" -> "mes", "semanas" -> "semana", "días" -> "día"
+    candidates = [raw_unit]
+    if raw_unit.endswith("es"):
+        candidates.append(raw_unit[:-2])
+    if raw_unit.endswith("s"):
+        candidates.append(raw_unit[:-1])
+    days = next((_RELATIVE_UNITS[c] for c in candidates if c in _RELATIVE_UNITS), None)
+    if days is None:
+        return None
+    from datetime import timedelta
+
+    return datetime.now(timezone.utc) - timedelta(days=amount * days)
+
+
+def _yt_search_html(query: str) -> str:
+    url = (
+        "https://www.youtube.com/results?search_query="
+        f"{quote_plus(query)}&hl=es&gl=CL&sp=CAI%253D"
+    )
+    with httpx.Client(
+        headers={"User-Agent": BROWSER_UA, "Accept-Language": "es-CL,es;q=0.9"},
+        timeout=30.0,
+        follow_redirects=True,
+    ) as client:
+        resp = client.get(url)
+        resp.raise_for_status()
+        return resp.text
+
+
+def _yt_extract_renderers(html: str) -> list[dict]:
+    import json
+
+    match = re.search(r"var ytInitialData\s*=\s*(\{.*?\});</script>", html, re.S)
+    if not match:
+        return []
     try:
-        with httpx.Client(headers=headers, timeout=25.0, follow_redirects=True) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
-            feed = feedparser.parse(resp.text)
-    except Exception as exc:
-        logger.warning("YouTube discovery falló: %s", exc)
-        return docs
-    for entry in feed.entries[:limit]:
-        title = (entry.get("title") or "").strip()
-        link = (entry.get("link") or "").strip()
-        if not title or not link:
+        data = json.loads(match.group(1))
+    except Exception:
+        return []
+
+    found: list[dict] = []
+
+    def walk(node) -> None:
+        if isinstance(node, dict):
+            if "videoRenderer" in node:
+                found.append(node["videoRenderer"])
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(data)
+    return found
+
+
+def collect_youtube(request: AnalysisRequest, *, limit: int = 20) -> list[SourceDocument]:
+    """Videos públicos de YouTube leyendo los resultados de búsqueda ordenados por fecha."""
+    suffix = territory_query_suffix(request.territory_level, request.territory_label)
+    queries = [f"{request.topic} {suffix}"]
+    for actor in request.actors[:2]:
+        if actor.strip():
+            queries.append(f"{actor} {suffix}")
+
+    docs: list[SourceDocument] = []
+    seen: set[str] = set()
+    for query in queries:
+        try:
+            html = _yt_search_html(query)
+        except Exception as exc:
+            logger.warning("YouTube búsqueda falló (%s): %s", query[:40], exc)
             continue
-        if "youtube.com" not in link and "youtu.be" not in link:
-            continue
-        published = _parse_date(entry)
-        if published:
-            d = published.date()
-            if d < request.period_start or d > request.period_end:
+        renderers = _yt_extract_renderers(html)
+        if not renderers:
+            logger.warning("YouTube no devolvió resultados parseables para %s", query[:40])
+        for video in renderers:
+            video_id = video.get("videoId")
+            if not video_id or video_id in seen:
                 continue
-        docs.append(
-            SourceDocument(
-                id=_doc_id("yt", link),
-                source_type="youtube",
-                title=title,
-                url=link,
-                canonical_url=canonical_url(link),
-                publisher="YouTube",
-                published_at=published,
-                excerpt=title,
-                text=title,
-                content_hash=content_hash(title + link),
+            title = "".join(
+                run.get("text", "") for run in (video.get("title", {}).get("runs") or [])
+            ).strip()
+            if not title:
+                continue
+            published = _parse_relative_es(
+                (video.get("publishedTimeText") or {}).get("simpleText") or ""
             )
-        )
+            if published:
+                day = published.date()
+                # Margen por la imprecisión de las fechas relativas de YouTube.
+                from datetime import timedelta
+
+                if day < request.period_start - timedelta(days=31) or day > request.period_end:
+                    continue
+            channel = ""
+            owner_runs = (video.get("ownerText") or {}).get("runs") or []
+            if owner_runs:
+                channel = owner_runs[0].get("text") or ""
+            description = "".join(
+                run.get("text", "")
+                for run in (video.get("detailedMetadataSnippets") or [{}])[0]
+                .get("snippetText", {})
+                .get("runs", [])
+            )
+            views = ((video.get("viewCountText") or {}).get("simpleText")) or ""
+            link = f"https://www.youtube.com/watch?v={video_id}"
+            seen.add(video_id)
+            docs.append(
+                SourceDocument(
+                    id=_doc_id("yt", link),
+                    source_type="youtube",
+                    title=title,
+                    url=link,
+                    canonical_url=link,
+                    publisher=channel or "YouTube",
+                    author=channel,
+                    published_at=published,
+                    excerpt=(description or title)[:400],
+                    text=f"{title}\n{description}".strip(),
+                    content_hash=content_hash(title + video_id),
+                    engagement={"views_text": views},
+                    metadata={
+                        "query": query,
+                        "published_is_approximate": bool(published),
+                    },
+                )
+            )
+            if len(docs) >= limit:
+                break
+        if len(docs) >= limit:
+            break
     return docs
 
 
-def collect_bluesky(request: AnalysisRequest, *, limit: int = 20) -> list[SourceDocument]:
-    q = quote_plus(request.topic)
-    url = f"https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts?q={q}&limit={limit}"
+# Solo URLs de publicaciones concretas; los enlaces a perfiles son ruido.
+POST_PATTERNS: dict[str, re.Pattern[str]] = {
+    "x": re.compile(
+        r"https?://(?:www\.)?(?:x|twitter)\.com/[A-Za-z0-9_]{1,20}/status/\d+",
+        re.I,
+    ),
+    "instagram": re.compile(
+        r"https?://(?:www\.)?instagram\.com/(?:p|reel|tv)/[A-Za-z0-9_\-]+",
+        re.I,
+    ),
+    "tiktok": re.compile(
+        r"https?://(?:www\.)?tiktok\.com/@[A-Za-z0-9_.]+/video/\d+",
+        re.I,
+    ),
+    "facebook": re.compile(
+        r"https?://(?:www\.)?facebook\.com/(?:[A-Za-z0-9.\-]+/(?:posts|videos)/[A-Za-z0-9.\-]+"
+        r"|permalink\.php\?story_fbid=\d+[^\s\"'<>]*"
+        r"|share/[pvr]/[A-Za-z0-9_\-]+)",
+        re.I,
+    ),
+}
+
+
+def extract_social_posts(html: str, platforms: list[str] | None = None) -> dict[str, list[str]]:
+    """Extrae URLs de publicaciones de redes cerradas incrustadas en un HTML."""
+    wanted = platforms or list(POST_PATTERNS)
+    out: dict[str, list[str]] = {}
+    for platform in wanted:
+        pattern = POST_PATTERNS.get(platform)
+        if not pattern:
+            continue
+        urls: list[str] = []
+        for raw in pattern.findall(html or ""):
+            url = raw.rstrip(").,;\"'")
+            if url not in urls:
+                urls.append(url)
+        if urls:
+            out[platform] = urls
+    return out
+
+
+def collect_social_from_articles(
+    request: AnalysisRequest,
+    articles: list[SourceDocument],
+    *,
+    platforms: list[str] | None = None,
+    max_articles: int = 25,
+    limit_per_platform: int = 12,
+) -> list[SourceDocument]:
+    """Descubre publicaciones de X/Instagram/Facebook/TikTok citadas por los medios.
+
+    Es cobertura indirecta y verificable: cada post queda ligado al artículo que lo citó.
+    No sustituye a las APIs oficiales ni pretende ser una muestra completa.
+    """
+    wanted = [p for p in (platforms or list(POST_PATTERNS)) if p in POST_PATTERNS]
+    if not wanted:
+        return []
+
     docs: list[SourceDocument] = []
-    try:
-        with httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=25.0) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
-            posts = resp.json().get("posts") or []
-    except Exception as exc:
-        logger.warning("Bluesky falló: %s", exc)
-        return docs
+    counts: dict[str, int] = {p: 0 for p in wanted}
+    seen: set[str] = set()
+    candidates = [a for a in articles if a.url][:max_articles]
+
+    with httpx.Client(
+        headers={"User-Agent": BROWSER_UA, "Accept-Language": "es-CL,es;q=0.9"},
+        timeout=20.0,
+        follow_redirects=True,
+    ) as client:
+        for article in candidates:
+            if all(counts[p] >= limit_per_platform for p in wanted):
+                break
+            try:
+                resp = client.get(article.url)
+                if resp.status_code >= 400:
+                    continue
+                if "text/html" not in resp.headers.get("content-type", ""):
+                    continue
+                html = resp.text[:600_000]
+            except Exception as exc:
+                logger.debug("No se pudo leer %s: %s", article.url, exc)
+                continue
+
+            for platform, urls in extract_social_posts(html, wanted).items():
+                for url in urls:
+                    if counts[platform] >= limit_per_platform:
+                        break
+                    key = url.lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    counts[platform] += 1
+                    handle = ""
+                    m = re.search(r"(?:x|twitter)\.com/([A-Za-z0-9_]+)/status", url, re.I)
+                    if m:
+                        handle = f"@{m.group(1)}"
+                    m = re.search(r"tiktok\.com/(@[A-Za-z0-9_.]+)/video", url, re.I)
+                    if m:
+                        handle = m.group(1)
+                    label = {
+                        "x": "X (Twitter)",
+                        "instagram": "Instagram",
+                        "facebook": "Facebook",
+                        "tiktok": "TikTok",
+                    }[platform]
+                    quote = (article.excerpt or article.title or "")[:400]
+                    docs.append(
+                        SourceDocument(
+                            id=_doc_id(platform, url),
+                            source_type=platform,  # type: ignore[arg-type]
+                            title=f"Publicación en {label} citada por {article.publisher}",
+                            url=url,
+                            canonical_url=canonical_url(url),
+                            publisher=label,
+                            author=handle,
+                            published_at=article.published_at,
+                            excerpt=quote,
+                            text=f"{article.title}\n{quote}".strip(),
+                            content_hash=content_hash(url),
+                            metadata={
+                                "coverage": "indirect_media_citation",
+                                "cited_by_url": article.url,
+                                "cited_by": article.publisher,
+                                "cited_by_document_id": article.id,
+                            },
+                        )
+                    )
+    return docs
+
+
+def collect_bluesky(request: AnalysisRequest, *, limit: int = 25) -> list[SourceDocument]:
+    """Busca en Bluesky por tema y por actor. Propaga el error si la API rechaza."""
+    queries = [request.topic, *[a for a in request.actors[:3] if a.strip()]]
+    posts: list[dict] = []
+    last_error: Exception | None = None
+    with httpx.Client(
+        headers={"User-Agent": BROWSER_UA, "Accept": "application/json"},
+        timeout=25.0,
+        follow_redirects=True,
+    ) as client:
+        for query in queries:
+            url = (
+                "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+                f"?q={quote_plus(query)}&limit={limit}&lang=es"
+            )
+            try:
+                resp = client.get(url)
+                resp.raise_for_status()
+                posts.extend(resp.json().get("posts") or [])
+            except Exception as exc:
+                last_error = exc
+                logger.warning("Bluesky falló (%s): %s", query[:30], exc)
+    if not posts and last_error is not None:
+        # Sin esto el informe diría "sin resultados" cuando en realidad la API nos bloqueó.
+        raise RuntimeError(f"Bluesky no respondió: {last_error}")
+
+    docs: list[SourceDocument] = []
     for post in posts:
         record = post.get("record") or {}
         text = (record.get("text") or "").strip()
@@ -250,19 +587,35 @@ def collect_bluesky(request: AnalysisRequest, *, limit: int = 20) -> list[Source
     return docs
 
 
+MASTODON_INSTANCES = ("mastodon.social", "mstdn.social", "masto.es")
+
+
 def collect_mastodon(request: AnalysisRequest, *, limit: int = 20) -> list[SourceDocument]:
-    # Instancia pública chilena / general
+    """Busca en varias instancias públicas; masto.es aporta contenido en español."""
     q = quote_plus(request.topic)
-    url = f"https://mastodon.social/api/v2/search?q={q}&type=statuses&limit={limit}"
+    statuses: list[dict] = []
+    last_error: Exception | None = None
+    with httpx.Client(
+        headers={"User-Agent": BROWSER_UA, "Accept": "application/json"},
+        timeout=25.0,
+        follow_redirects=True,
+    ) as client:
+        for host in MASTODON_INSTANCES:
+            url = f"https://{host}/api/v2/search?q={q}&type=statuses&limit={limit}"
+            try:
+                resp = client.get(url)
+                resp.raise_for_status()
+                found = resp.json().get("statuses") or []
+                statuses.extend(found)
+                if found:
+                    break
+            except Exception as exc:
+                last_error = exc
+                logger.warning("Mastodon %s falló: %s", host, exc)
+    if not statuses and last_error is not None:
+        raise RuntimeError(f"Mastodon no respondió: {last_error}")
+
     docs: list[SourceDocument] = []
-    try:
-        with httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=25.0) as client:
-            resp = client.get(url)
-            resp.raise_for_status()
-            statuses = resp.json().get("statuses") or []
-    except Exception as exc:
-        logger.warning("Mastodon falló: %s", exc)
-        return docs
     for st in statuses:
         text = re.sub(r"<[^>]+>", "", st.get("content") or "").strip()
         link = st.get("url") or ""
@@ -297,54 +650,20 @@ def collect_mastodon(request: AnalysisRequest, *, limit: int = 20) -> list[Sourc
     return docs
 
 
-def collect_indexed_social(request: AnalysisRequest, *, limit: int = 15) -> list[SourceDocument]:
-    """Publicaciones públicas indexadas (cobertura parcial) vía Bing News/RSS site:."""
-    sites = [
-        ("x.com OR twitter.com", "indexed"),
-        ("instagram.com", "indexed"),
-        ("facebook.com", "indexed"),
-        ("tiktok.com", "indexed"),
-    ]
-    docs: list[SourceDocument] = []
-    headers = {"User-Agent": USER_AGENT}
-    suffix = territory_query_suffix(request.territory_level, request.territory_label)
-    with httpx.Client(headers=headers, timeout=25.0, follow_redirects=True) as client:
-        for site, stype in sites:
-            q = quote_plus(f"{request.topic} {suffix} ({site})")
-            url = f"https://www.bing.com/news/search?q={q}&format=rss&setlang=es-CL&cc=CL"
-            try:
-                resp = client.get(url)
-                resp.raise_for_status()
-                feed = feedparser.parse(resp.text)
-            except Exception as exc:
-                logger.warning("Indexed %s falló: %s", site, exc)
-                continue
-            for entry in feed.entries[: max(1, limit // len(sites))]:
-                title = (entry.get("title") or "").strip()
-                link = (entry.get("link") or "").strip()
-                if not title or not link:
-                    continue
-                published = _parse_date(entry)
-                if published:
-                    d = published.date()
-                    if d < request.period_start or d > request.period_end:
-                        continue
-                docs.append(
-                    SourceDocument(
-                        id=_doc_id("idx", link),
-                        source_type="indexed",  # type: ignore[arg-type]
-                        title=title,
-                        url=link,
-                        canonical_url=canonical_url(link),
-                        publisher=urlparse(link).netloc.replace("www.", ""),
-                        published_at=published,
-                        excerpt=title,
-                        text=title,
-                        content_hash=content_hash(title + link),
-                        metadata={"indexed_query": site, "coverage": "partial"},
-                    )
-                )
-    return docs
+def collect_indexed_social(
+    request: AnalysisRequest,
+    articles: list[SourceDocument] | None = None,
+    *,
+    platforms: list[str] | None = None,
+) -> list[SourceDocument]:
+    """Compatibilidad: descubre posts de redes cerradas citados por los medios.
+
+    La versión anterior usaba `site:` contra Bing News, que no indexa publicaciones
+    de redes sociales y por eso siempre devolvía cero documentos.
+    """
+    if articles is None:
+        articles = collect_news(request)
+    return collect_social_from_articles(request, articles, platforms=platforms)
 
 
 def ingest_urls(urls: list[str]) -> list[SourceDocument]:

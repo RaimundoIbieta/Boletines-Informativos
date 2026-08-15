@@ -6,10 +6,10 @@ from pathlib import Path
 
 from media_analyzer.connectors.collect import (
     collect_bluesky,
-    collect_indexed_social,
     collect_mastodon,
     collect_news,
     collect_reddit,
+    collect_social_from_articles,
     collect_youtube,
     ingest_urls,
 )
@@ -17,6 +17,7 @@ from media_analyzer.deduplication import cluster_same_story, dedupe_documents
 from media_analyzer.extractors.files import extract_text_file
 from media_analyzer.geography import detect_geography
 from media_analyzer.models import (
+    RESTRICTED_PLATFORMS,
     AnalysisReport,
     AnalysisRequest,
     CoverageMetrics,
@@ -28,6 +29,92 @@ from media_analyzer.sentiment import analyze_with_llm
 from media_analyzer.validation import month_windows
 
 logger = logging.getLogger(__name__)
+
+PLATFORM_LABELS = {
+    "news": "Medios digitales",
+    "youtube": "YouTube",
+    "reddit": "Reddit",
+    "bluesky": "Bluesky",
+    "mastodon": "Mastodon",
+    "x": "X (Twitter)",
+    "instagram": "Instagram",
+    "facebook": "Facebook",
+    "tiktok": "TikTok",
+    "url": "Enlaces aportados",
+    "file": "Archivos aportados",
+}
+
+PLATFORM_SEARCH_TERMS = {
+    "x": "publicación en X",
+    "instagram": "Instagram",
+    "facebook": "Facebook",
+    "tiktok": "video TikTok",
+}
+
+PLATFORM_METHODS = {
+    "news": ("public_search", "Búsqueda de noticias y RSS abiertos."),
+    "youtube": ("public_search", "Resultados públicos de búsqueda de YouTube."),
+    "reddit": ("public_api", "API pública de búsqueda de Reddit."),
+    "bluesky": ("public_api", "API pública de Bluesky."),
+    "mastodon": ("public_api", "API pública de Mastodon."),
+    "x": (
+        "media_citation",
+        "Sin API abierta: solo publicaciones citadas por medios o aportadas por ti.",
+    ),
+    "instagram": (
+        "media_citation",
+        "Sin API abierta: solo publicaciones citadas por medios o aportadas por ti.",
+    ),
+    "facebook": (
+        "media_citation",
+        "Sin API abierta: solo publicaciones citadas por medios o aportadas por ti.",
+    ),
+    "tiktok": (
+        "media_citation",
+        "Sin API abierta: solo publicaciones citadas por medios o aportadas por ti.",
+    ),
+    "url": ("user_supplied", "Enlaces que entregaste en la solicitud."),
+    "file": ("user_supplied", "Archivos que subiste."),
+}
+
+
+def _platform_coverage(
+    by_source: Counter,
+    enabled: set[str],
+    request: AnalysisRequest,
+    errors: dict[str, str],
+) -> list:
+    from media_analyzer.models import PlatformCoverage
+
+    rows = []
+    for key in PLATFORM_LABELS:
+        count = int(by_source.get(key, 0))
+        requested = (
+            key in enabled
+            or (key == "url" and request.urls)
+            or (key == "file" and request.file_paths)
+        )
+        if not requested and count == 0:
+            continue
+        method, note = PLATFORM_METHODS.get(key, ("unavailable", ""))
+        failure = errors.get(key) or (
+            errors.get("redes_cerradas") if key in RESTRICTED_PLATFORMS else None
+        )
+        if failure:
+            method = "unavailable"
+            note = f"La fuente no respondió en esta corrida: {failure[:160]}"
+        elif count == 0 and method in {"public_api", "public_search"}:
+            note = f"{note} Sin resultados en este periodo."
+        rows.append(
+            PlatformCoverage(
+                platform=key,
+                label=PLATFORM_LABELS[key],
+                documents=count,
+                method=method,
+                note=note,
+            )
+        )
+    return rows
 
 
 def run_analysis(
@@ -54,7 +141,17 @@ def run_analysis(
     enabled = set(request.enabled_sources or [])
     # Sin fuentes explícitas: abrir el set por defecto (salvo que solo haya URLs/archivos).
     if not enabled and not request.urls and not request.file_paths:
-        enabled = {"news", "youtube", "reddit", "bluesky", "mastodon", "indexed"}
+        enabled = {
+            "news",
+            "youtube",
+            "reddit",
+            "bluesky",
+            "mastodon",
+            *RESTRICTED_PLATFORMS,
+        }
+    # "indexed" era el nombre antiguo del bloque de redes cerradas.
+    if "indexed" in enabled:
+        enabled.update(RESTRICTED_PLATFORMS)
 
     collectors = []
     if "news" in enabled:
@@ -67,17 +164,50 @@ def run_analysis(
         collectors.append(("bluesky", collect_bluesky))
     if "mastodon" in enabled:
         collectors.append(("mastodon", collect_mastodon))
-    if "indexed" in enabled:
-        collectors.append(("indexed", collect_indexed_social))
 
+    news_docs: list[SourceDocument] = []
     for name, fn in collectors:
         try:
             docs = fn(request)
             documents.extend(docs)
+            if name == "news":
+                news_docs = docs
             logger.info("Conector %s → %s docs", name, len(docs))
         except Exception as exc:
             errors[name] = str(exc)[:300]
             logger.warning("Conector %s error: %s", name, exc)
+
+    # Redes cerradas: publicaciones citadas/incrustadas por los medios del periodo.
+    restricted = [p for p in RESTRICTED_PLATFORMS if p in enabled]
+    if restricted:
+        try:
+            base_articles = news_docs or collect_news(request)
+            social_docs = collect_social_from_articles(
+                request, base_articles, platforms=restricted
+            )
+            found = {d.source_type for d in social_docs}
+            missing = [p for p in restricted if p in PLATFORM_SEARCH_TERMS and p not in found]
+            if missing:
+                # Segunda pasada: notas que hablan explícitamente de esa red.
+                extra_queries = [
+                    f"{request.topic} {PLATFORM_SEARCH_TERMS[p]}" for p in missing
+                ]
+                try:
+                    targeted = collect_news(request, queries=extra_queries, max_per_query=8)
+                    social_docs.extend(
+                        collect_social_from_articles(request, targeted, platforms=missing)
+                    )
+                except Exception as exc:
+                    logger.warning("Búsqueda dirigida de redes falló: %s", exc)
+            documents.extend(social_docs)
+            logger.info(
+                "Redes cerradas (%s) → %s posts citados por medios",
+                ", ".join(restricted),
+                len(social_docs),
+            )
+        except Exception as exc:
+            errors["redes_cerradas"] = str(exc)[:300]
+            logger.warning("Redes cerradas error: %s", exc)
 
     progress(35, "ingesting_inputs")
     if request.urls:
@@ -163,10 +293,22 @@ def run_analysis(
         documents_included=len(documents),
         by_source=dict(by_source),
         connector_errors=errors,
+        platforms=_platform_coverage(by_source, enabled, request, errors),
         period_start=request.period_start,
         period_end=request.period_end,
         territory=request.territory_label,
     )
+    empty_restricted = [
+        p
+        for p in RESTRICTED_PLATFORMS
+        if p in enabled and by_source.get(p, 0) == 0 and "redes_cerradas" not in errors
+    ]
+    if empty_restricted:
+        labels = ", ".join(PLATFORM_LABELS[p] for p in empty_restricted)
+        report.warnings.append(
+            f"Sin publicaciones de {labels} en esta muestra: no tienen API abierta, así que "
+            "solo aparecen cuando un medio las cita o cuando aportas enlaces y archivos."
+        )
     if errors:
         report.warnings.append(
             "Algunos conectores fallaron o devolvieron cobertura parcial: "

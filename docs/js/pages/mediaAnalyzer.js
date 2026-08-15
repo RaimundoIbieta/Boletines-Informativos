@@ -20,6 +20,26 @@ const REGIONS = [
   ['12', 'Magallanes'],
 ];
 
+const SOURCES = [
+  ['news', 'Medios digitales', false],
+  ['youtube', 'YouTube', false],
+  ['reddit', 'Reddit', false],
+  ['bluesky', 'Bluesky', false],
+  ['mastodon', 'Mastodon', false],
+  ['x', 'X (Twitter)', true],
+  ['instagram', 'Instagram', true],
+  ['facebook', 'Facebook', true],
+  ['tiktok', 'TikTok', true],
+];
+
+const COVERAGE_METHODS = {
+  public_api: 'API pública',
+  public_search: 'Búsqueda pública',
+  media_citation: 'Citado por medios',
+  user_supplied: 'Aportado por ti',
+  unavailable: 'No disponible',
+};
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -179,16 +199,20 @@ export async function renderMediaAnalyzerNew(container) {
       <textarea id="include" placeholder="elección&#10;encuesta"></textarea>
       <label>Excluir términos (opcional)</label>
       <textarea id="exclude"></textarea>
-      <label>Fuentes abiertas</label>
+      <label>Fuentes</label>
       <div class="grid grid-3">
-        ${['news', 'youtube', 'reddit', 'bluesky', 'mastodon', 'indexed']
-          .map(
-            (s) => `<label style="text-transform:none;letter-spacing:0;font-size:.95rem;display:flex;gap:8px;align-items:center">
-              <input type="checkbox" class="src" value="${s}" checked /> ${s}
+        ${SOURCES.map(
+          ([value, label, restricted]) =>
+            `<label style="text-transform:none;letter-spacing:0;font-size:.95rem;display:flex;gap:8px;align-items:center">
+              <input type="checkbox" class="src" value="${value}" checked /> ${escapeHtml(label)}${
+                restricted ? ' <span class="muted">*</span>' : ''
+              }
             </label>`
-          )
-          .join('')}
+        ).join('')}
       </div>
+      <p class="muted">* X, Instagram, Facebook y TikTok no tienen API abierta ni buscador que
+      permita rastrearlas. Se cubren con las publicaciones que los medios citan e incrustan, y con
+      los enlaces o archivos que aportes abajo. No es una muestra completa de esas redes.</p>
       <label>URLs de redes restringidas / aportes (una por línea)</label>
       <textarea id="urls" placeholder="https://x.com/...&#10;https://www.instagram.com/p/..."></textarea>
       <label>Archivos (txt, md, csv, json, html, pdf)</label>
@@ -375,6 +399,7 @@ export async function renderMediaAnalyzerDetail(container, id) {
   const geography = result?.geography || {};
   const trends = result?.trends || [];
   const topPlaces = Object.entries(geography.top_places || {});
+  const platforms = coverage.platforms || [];
 
   container.innerHTML = `
     <h1 class="page-title">${escapeHtml(req.topic)}</h1>
@@ -466,15 +491,24 @@ export async function renderMediaAnalyzerDetail(container, id) {
       </div>
     </div>
     <div class="card" style="margin-top:12px">
-      <h2>Cobertura</h2>
+      <h2>Cobertura por plataforma</h2>
       <p class="muted">Descubiertos: ${escapeHtml(coverage.documents_discovered ?? 0)} · Incluidos: ${escapeHtml(coverage.documents_included ?? 0)}</p>
-      <ul>${Object.entries(coverage.by_source || {})
-        .map(([k, v]) => `<li>${escapeHtml(k)}: ${escapeHtml(v)}</li>`)
-        .join('')}</ul>
       ${
-        coverage.connector_errors
-          ? `<p class="muted">Errores de conectores: ${escapeHtml(JSON.stringify(coverage.connector_errors))}</p>`
-          : ''
+        platforms.length
+          ? `<table class="table"><thead><tr><th>Plataforma</th><th>Documentos</th><th>Cómo se obtuvo</th></tr></thead>
+             <tbody>${platforms
+               .map(
+                 (p) => `<tr>
+                   <td>${escapeHtml(p.label || p.platform)}</td>
+                   <td>${escapeHtml(p.documents ?? 0)}</td>
+                   <td><span class="chip">${escapeHtml(COVERAGE_METHODS[p.method] || p.method)}</span>
+                     ${p.note ? `<br><span class="muted">${escapeHtml(p.note)}</span>` : ''}</td>
+                 </tr>`
+               )
+               .join('')}</tbody></table>`
+          : `<ul>${Object.entries(coverage.by_source || {})
+              .map(([k, v]) => `<li>${escapeHtml(k)}: ${escapeHtml(v)}</li>`)
+              .join('')}</ul>`
       }
     </div>
     <div class="card" style="margin-top:12px">
