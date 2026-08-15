@@ -166,6 +166,7 @@ class PlatformCoverage(BaseModel):
     method: Literal[
         "public_api",
         "public_search",
+        "public_timeline",
         "media_citation",
         "user_supplied",
         "unavailable",

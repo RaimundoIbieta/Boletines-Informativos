@@ -10,8 +10,11 @@ from media_analyzer.connectors.collect import (
     collect_news,
     collect_reddit,
     collect_social_from_articles,
+    collect_x_timelines,
     collect_youtube,
+    enrich_with_oembed,
     ingest_urls,
+    normalize_handle,
 )
 from media_analyzer.deduplication import cluster_same_story, dedupe_documents
 from media_analyzer.extractors.files import extract_text_file
@@ -58,8 +61,9 @@ PLATFORM_METHODS = {
     "bluesky": ("public_api", "API pública de Bluesky."),
     "mastodon": ("public_api", "API pública de Mastodon."),
     "x": (
-        "media_citation",
-        "Sin API abierta: solo publicaciones citadas por medios o aportadas por ti.",
+        "public_timeline",
+        "Timeline público de las cuentas indicadas (sin login), más publicaciones citadas "
+        "por medios. X no permite buscar por tema sin sesión.",
     ),
     "instagram": (
         "media_citation",
@@ -76,6 +80,29 @@ PLATFORM_METHODS = {
     "url": ("user_supplied", "Enlaces que entregaste en la solicitud."),
     "file": ("user_supplied", "Archivos que subiste."),
 }
+
+
+def _x_handles(request: AnalysisRequest, documents: list[SourceDocument]) -> list[str]:
+    """Cuentas de X a leer: las que pidió el usuario y las que aparecen citadas."""
+    raw: list[str] = []
+    config = request.configuration or {}
+    for key in ("x_accounts", "accounts", "social_accounts"):
+        value = config.get(key)
+        if isinstance(value, list):
+            raw.extend(str(v) for v in value)
+        elif isinstance(value, dict):
+            raw.extend(str(v) for v in (value.get("x") or []))
+        elif isinstance(value, str):
+            raw.extend(value.replace(",", "\n").split())
+    for doc in documents:
+        if doc.source_type == "x" and doc.author:
+            raw.append(doc.author)
+    handles: list[str] = []
+    for item in raw:
+        handle = normalize_handle(item)
+        if handle and handle.lower() not in {h.lower() for h in handles}:
+            handles.append(handle)
+    return handles
 
 
 def _platform_coverage(
@@ -100,11 +127,19 @@ def _platform_coverage(
         failure = errors.get(key) or (
             errors.get("redes_cerradas") if key in RESTRICTED_PLATFORMS else None
         )
-        if failure:
+        if key == "x" and not failure:
+            failure = errors.get("x_timelines")
+        if failure and count == 0:
             method = "unavailable"
             note = f"La fuente no respondió en esta corrida: {failure[:160]}"
-        elif count == 0 and method in {"public_api", "public_search"}:
-            note = f"{note} Sin resultados en este periodo."
+        elif count == 0 and method in {"public_api", "public_search", "public_timeline"}:
+            if key == "x":
+                note = (
+                    "Sin publicaciones: indica cuentas públicas de X para leerlas, "
+                    "o aporta enlaces. X no permite buscar por tema sin sesión."
+                )
+            else:
+                note = f"{note} Sin resultados en este periodo."
         rows.append(
             PlatformCoverage(
                 platform=key,
@@ -208,6 +243,31 @@ def run_analysis(
         except Exception as exc:
             errors["redes_cerradas"] = str(exc)[:300]
             logger.warning("Redes cerradas error: %s", exc)
+
+    # Timelines públicos de X: cuentas indicadas por el usuario + las que citan los medios.
+    if "x" in enabled:
+        handles = _x_handles(request, documents)
+        if handles:
+            try:
+                x_docs = collect_x_timelines(request, handles)
+                documents.extend(x_docs)
+                logger.info(
+                    "X timelines públicos (%s cuentas) → %s publicaciones",
+                    len(handles),
+                    len(x_docs),
+                )
+            except Exception as exc:
+                errors["x_timelines"] = str(exc)[:300]
+                logger.warning("X timelines error: %s", exc)
+        else:
+            logger.info("X: sin cuentas indicadas; solo posts citados por medios.")
+
+    if any(d.source_type == "tiktok" for d in documents):
+        try:
+            enriched = enrich_with_oembed(documents)
+            logger.info("TikTok enriquecidos con oEmbed: %s", enriched)
+        except Exception as exc:
+            logger.warning("oEmbed falló: %s", exc)
 
     progress(35, "ingesting_inputs")
     if request.urls:

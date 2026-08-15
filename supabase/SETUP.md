@@ -74,6 +74,19 @@ Sección privada `#/analizador` (solo superadmin). Resultados en Storage privado
 5. Workflow **Análisis de medios (bajo demanda)** corre cada 15 min y también por `workflow_dispatch`.
 6. Sin `GITHUB_PAT`, la solicitud queda `pending` y el cron la recoge igual.
 
+### Qué cubre cada red
+
+| Plataforma | Cómo se obtiene |
+|---|---|
+| Medios digitales, YouTube | Búsqueda pública automática |
+| Reddit, Mastodon, Bluesky | API pública |
+| **X (Twitter)** | Timeline público de las cuentas que indiques (sin login) + posts citados por medios |
+| Instagram, Facebook, TikTok | Posts citados/incrustados por medios + enlaces y archivos que aportes |
+
+X, Instagram, Facebook y TikTok **no permiten buscar por tema sin sesión**: cerraron la búsqueda
+pública. Para X se lee el timeline público de cuentas concretas; para las otras tres solo hay
+cobertura indirecta. Cada análisis muestra una tabla de cobertura con el método usado.
+
 ### Probar el piloto
 
 1. Entra como admin → **Analizador** → **Nuevo análisis**

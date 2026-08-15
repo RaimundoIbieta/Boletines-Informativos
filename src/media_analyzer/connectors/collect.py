@@ -666,6 +666,209 @@ def collect_indexed_social(
     return collect_social_from_articles(request, articles, platforms=platforms)
 
 
+SYNDICATION_URL = "https://syndication.twitter.com/srv/timeline-profile/screen-name/{handle}"
+
+
+# Rutas de X y placeholders de plantillas de embed que no son cuentas reales.
+RESERVED_HANDLES = {
+    "user_id",
+    "i",
+    "intent",
+    "home",
+    "search",
+    "hashtag",
+    "share",
+    "explore",
+    "notifications",
+    "messages",
+    "settings",
+    "compose",
+    "login",
+    "signup",
+    "widgets",
+}
+
+
+def normalize_handle(raw: str) -> str:
+    """Acepta @usuario, usuario o una URL de perfil y devuelve el handle limpio."""
+    value = (raw or "").strip()
+    if not value:
+        return ""
+    if value.startswith("http"):
+        path = urlparse(value).path.strip("/")
+        value = path.split("/")[0] if path else ""
+    value = value.lstrip("@").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_]{1,15}", value or ""):
+        return ""
+    if value.lower() in RESERVED_HANDLES:
+        return ""
+    return value
+
+
+def _parse_syndication_entries(html: str) -> list[dict]:
+    import json
+
+    match = re.search(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S
+    )
+    if not match:
+        return []
+    try:
+        data = json.loads(match.group(1))
+    except Exception:
+        return []
+    timeline = (data.get("props") or {}).get("pageProps", {}).get("timeline") or {}
+    return timeline.get("entries") or []
+
+
+def collect_x_timelines(
+    request: AnalysisRequest,
+    handles: list[str],
+    *,
+    delay_seconds: float = 2.0,
+    max_accounts: int = 12,
+) -> list[SourceDocument]:
+    """Lee publicaciones públicas de cuentas de X sin login ni seguirlas.
+
+    Usa el endpoint de sindicación de widgets, que sirve el timeline público.
+    No permite buscar por tema: X cerró la búsqueda sin sesión, así que hay que
+    indicar las cuentas que se quieren leer.
+    """
+    import time
+
+    clean = []
+    for raw in handles:
+        handle = normalize_handle(raw)
+        if handle and handle.lower() not in {h.lower() for h in clean}:
+            clean.append(handle)
+    clean = clean[:max_accounts]
+    if not clean:
+        return []
+
+    docs: list[SourceDocument] = []
+    failures: list[str] = []
+    with httpx.Client(
+        headers={
+            "User-Agent": BROWSER_UA,
+            "Referer": "https://platform.twitter.com/",
+            "Accept-Language": "es-CL,es;q=0.9",
+        },
+        timeout=25.0,
+        follow_redirects=True,
+    ) as client:
+        for index, handle in enumerate(clean):
+            if index:
+                time.sleep(delay_seconds)
+            entries: list[dict] = []
+            for attempt in range(3):
+                try:
+                    resp = client.get(SYNDICATION_URL.format(handle=handle))
+                    if resp.status_code == 429:
+                        time.sleep(delay_seconds * (attempt + 2))
+                        continue
+                    resp.raise_for_status()
+                    entries = _parse_syndication_entries(resp.text)
+                    break
+                except Exception as exc:
+                    if attempt == 2:
+                        failures.append(f"@{handle}: {exc}")
+                    else:
+                        time.sleep(delay_seconds * (attempt + 1))
+            if not entries:
+                if f"@{handle}" not in " ".join(failures):
+                    failures.append(f"@{handle}: sin publicaciones legibles")
+                continue
+
+            for entry in entries:
+                tweet = (entry.get("content") or {}).get("tweet") or {}
+                text = (tweet.get("full_text") or tweet.get("text") or "").strip()
+                if not text:
+                    continue
+                published = None
+                created = tweet.get("created_at")
+                if created:
+                    try:
+                        published = parsedate_to_datetime(created)
+                        if published.tzinfo is None:
+                            published = published.replace(tzinfo=timezone.utc)
+                    except Exception:
+                        published = None
+                if published:
+                    day = published.date()
+                    if day < request.period_start or day > request.period_end:
+                        continue
+                user = tweet.get("user") or {}
+                screen_name = user.get("screen_name") or handle
+                tweet_id = tweet.get("id_str") or tweet.get("conversation_id_str") or ""
+                link = tweet.get("permalink") or ""
+                if link and link.startswith("/"):
+                    link = f"https://x.com{link}"
+                if not link:
+                    link = f"https://x.com/{screen_name}/status/{tweet_id}"
+                docs.append(
+                    SourceDocument(
+                        id=_doc_id("x", link or text[:60]),
+                        source_type="x",
+                        title=text[:120],
+                        url=link,
+                        canonical_url=canonical_url(link),
+                        publisher="X (Twitter)",
+                        author=f"@{screen_name}",
+                        published_at=published,
+                        excerpt=text[:400],
+                        text=text,
+                        content_hash=content_hash(text),
+                        engagement={
+                            "likes": tweet.get("favorite_count"),
+                            "reposts": tweet.get("retweet_count"),
+                            "replies": tweet.get("reply_count"),
+                        },
+                        metadata={
+                            "coverage": "public_timeline",
+                            "account": f"@{screen_name}",
+                            "followers": (user.get("followers_count") if user else None),
+                        },
+                    )
+                )
+
+    if not docs and failures:
+        raise RuntimeError("X no entregó timelines públicos: " + "; ".join(failures[:3]))
+    return docs
+
+
+def fetch_tiktok_oembed(url: str) -> dict:
+    """Metadata pública de un video de TikTok (sin login)."""
+    api = f"https://www.tiktok.com/oembed?url={quote_plus(url)}"
+    with httpx.Client(headers={"User-Agent": BROWSER_UA}, timeout=20.0) as client:
+        resp = client.get(api)
+        resp.raise_for_status()
+        return resp.json()
+
+
+def enrich_with_oembed(documents: list[SourceDocument]) -> int:
+    """Completa título y autor de los videos de TikTok detectados."""
+    enriched = 0
+    for doc in documents:
+        if doc.source_type != "tiktok" or not doc.url:
+            continue
+        try:
+            data = fetch_tiktok_oembed(doc.url)
+        except Exception as exc:
+            logger.debug("oEmbed TikTok falló para %s: %s", doc.url, exc)
+            continue
+        title = (data.get("title") or "").strip()
+        author = (data.get("author_name") or "").strip()
+        if title:
+            doc.title = title[:200]
+            doc.excerpt = title[:400]
+            doc.text = f"{title}\n{doc.text}".strip()
+        if author:
+            doc.author = author
+        doc.metadata = {**(doc.metadata or {}), "oembed": True}
+        enriched += 1
+    return enriched
+
+
 def ingest_urls(urls: list[str]) -> list[SourceDocument]:
     from media_analyzer.extractors.html import fetch_url_text
 

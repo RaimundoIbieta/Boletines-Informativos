@@ -213,8 +213,13 @@ export async function renderMediaAnalyzerNew(container) {
       <p class="muted">* X, Instagram, Facebook y TikTok no tienen API abierta ni buscador que
       permita rastrearlas. Se cubren con las publicaciones que los medios citan e incrustan, y con
       los enlaces o archivos que aportes abajo. No es una muestra completa de esas redes.</p>
-      <label>URLs de redes restringidas / aportes (una por línea)</label>
-      <textarea id="urls" placeholder="https://x.com/...&#10;https://www.instagram.com/p/..."></textarea>
+      <label>Cuentas públicas de X a leer (una por línea)</label>
+      <textarea id="x_accounts" placeholder="@PresidenteKast&#10;@Cristiano&#10;https://x.com/usuario"></textarea>
+      <p class="muted">Lee las publicaciones públicas de esas cuentas sin necesidad de seguirlas ni
+      iniciar sesión. X no permite buscar por tema sin sesión, así que para saber quién habla de
+      alguien hay que indicar las cuentas o aportar enlaces.</p>
+      <label>URLs de publicaciones o notas (una por línea)</label>
+      <textarea id="urls" placeholder="https://x.com/usuario/status/123&#10;https://www.instagram.com/p/..."></textarea>
       <label>Archivos (txt, md, csv, json, html, pdf)</label>
       <input id="files" type="file" multiple accept=".txt,.md,.csv,.json,.html,.htm,.pdf,text/plain,application/pdf" />
       <div class="btn-row">
@@ -282,6 +287,12 @@ export async function renderMediaAnalyzerNew(container) {
         .map((x) => x.trim())
         .filter(Boolean);
       const enabled_sources = [...container.querySelectorAll('.src:checked')].map((x) => x.value);
+      const xAccounts = container
+        .querySelector('#x_accounts')
+        .value.split('\n')
+        .map((x) => x.trim().replace(/^@/, ''))
+        .filter(Boolean)
+        .slice(0, 12);
       const urls = container
         .querySelector('#urls')
         .value.split('\n')
@@ -303,7 +314,11 @@ export async function renderMediaAnalyzerNew(container) {
         p_exclude_terms: exclude_terms,
         p_enabled_sources: enabled_sources,
         p_urls: urls,
-        p_configuration: { default_window_days: 30, max_years: 2 },
+        p_configuration: {
+          default_window_days: 30,
+          max_years: 2,
+          x_accounts: xAccounts,
+        },
       });
       if (rpcErr) {
         if (/media_analysis|schema cache|does not exist|function/i.test(rpcErr.message)) {
