@@ -6,6 +6,14 @@ from pathlib import Path
 
 from media_analyzer.models import AnalysisReport
 
+METHOD_LABELS = {
+    "public_api": "API pública",
+    "public_search": "Búsqueda pública",
+    "media_citation": "Citado por medios",
+    "user_supplied": "Aportado por el usuario",
+    "unavailable": "No disponible",
+}
+
 
 def write_json(report: AnalysisReport, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -49,9 +57,19 @@ def write_markdown(report: AnalysisReport, path: Path) -> Path:
         for e in n.evidence[:3]:
             lines.append(f"  - {e}")
         lines.append("")
-    lines.extend(["", "## Cobertura por fuente", ""])
-    for k, v in (report.coverage.by_source or {}).items():
-        lines.append(f"- {k}: {v}")
+    lines.extend(["", "## Cobertura por plataforma", ""])
+    if report.coverage.platforms:
+        lines.append("| Plataforma | Documentos | Cómo se obtuvo |")
+        lines.append("| --- | --- | --- |")
+        for p in report.coverage.platforms:
+            lines.append(f"| {p.label} | {p.documents} | {METHOD_LABELS.get(p.method, p.method)} |")
+        lines.append("")
+        for p in report.coverage.platforms:
+            if p.note:
+                lines.append(f"- **{p.label}:** {p.note}")
+    else:
+        for k, v in (report.coverage.by_source or {}).items():
+            lines.append(f"- {k}: {v}")
     if report.warnings:
         lines.extend(["", "## Advertencias", ""])
         for w in report.warnings:
@@ -101,6 +119,22 @@ def write_html(report: AnalysisReport, path: Path) -> Path:
     )
     findings_html = "".join(f"<li>{f}</li>" for f in report.findings)
     warnings_html = "".join(f"<li>{w}</li>" for w in report.warnings)
+    if report.coverage.platforms:
+        rows = "".join(
+            f"<tr><td>{p.label}</td><td>{p.documents}</td>"
+            f"<td>{METHOD_LABELS.get(p.method, p.method)}<br>"
+            f"<small>{p.note}</small></td></tr>"
+            for p in report.coverage.platforms
+        )
+        platforms_html = (
+            "<table style='width:100%;border-collapse:collapse' border='1' cellpadding='6'>"
+            "<thead><tr><th>Plataforma</th><th>Docs</th><th>Cómo se obtuvo</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table>"
+        )
+    else:
+        platforms_html = "".join(
+            f"<p>{k}: {v}</p>" for k, v in (report.coverage.by_source or {}).items()
+        )
     sources_html = "".join(
         f'<li><a href="{d.url}">{d.title}</a> <span>({d.publisher} · {d.source_type})</span></li>'
         for d in report.documents[:40]
@@ -117,6 +151,7 @@ h1,h2{{font-family:system-ui,sans-serif}} .muted{{color:#64748b}} .card{{backgro
 <div class="card"><h2>Resumen</h2><p>{report.executive_summary}</p></div>
 <div class="card"><h2>Hallazgos</h2><ul>{findings_html}</ul></div>
 <div class="card"><h2>Actores</h2><ul>{actors_html}</ul></div>
+<div class="card"><h2>Cobertura por plataforma</h2>{platforms_html}</div>
 <div class="card"><h2>Advertencias</h2><ul>{warnings_html}</ul></div>
 <div class="card"><h2>Fuentes</h2><ul>{sources_html}</ul></div>
 </body></html>"""
@@ -188,6 +223,16 @@ def write_pdf(report: AnalysisReport, path: Path) -> Path:
     write_block("Actores", bold=True, size=12, h=8)
     for a in report.actors[:12]:
         write_block(f"- {a.name}: {a.mentions} menciones, score {a.average_score:+.2f}")
+    pdf.ln(1)
+    write_block("Cobertura por plataforma", bold=True, size=12, h=8)
+    if report.coverage.platforms:
+        for p in report.coverage.platforms:
+            write_block(
+                f"- {p.label}: {p.documents} docs ({METHOD_LABELS.get(p.method, p.method)})"
+            )
+    else:
+        for k, v in (report.coverage.by_source or {}).items():
+            write_block(f"- {k}: {v}")
     pdf.ln(1)
     write_block("Advertencias", bold=True, size=12, h=8)
     for w in report.warnings:

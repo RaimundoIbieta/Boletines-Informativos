@@ -22,11 +22,18 @@ SourceType = Literal[
     "reddit",
     "bluesky",
     "mastodon",
+    "x",
+    "instagram",
+    "facebook",
+    "tiktok",
     "indexed",
     "url",
     "file",
     "rss",
 ]
+
+# Plataformas sin API abierta: se cubren por citas en medios y aportes del usuario.
+RESTRICTED_PLATFORMS = ("x", "instagram", "facebook", "tiktok")
 
 
 class AnalysisRequest(BaseModel):
@@ -150,11 +157,28 @@ class NarrativeInsight(BaseModel):
     evidence: list[str] = Field(default_factory=list)
 
 
+class PlatformCoverage(BaseModel):
+    """Cómo se obtuvo cada plataforma y con qué límites."""
+
+    platform: str
+    label: str
+    documents: int = 0
+    method: Literal[
+        "public_api",
+        "public_search",
+        "media_citation",
+        "user_supplied",
+        "unavailable",
+    ] = "unavailable"
+    note: str = ""
+
+
 class CoverageMetrics(BaseModel):
     documents_discovered: int = 0
     documents_included: int = 0
     by_source: dict[str, int] = Field(default_factory=dict)
     connector_errors: dict[str, str] = Field(default_factory=dict)
+    platforms: list[PlatformCoverage] = Field(default_factory=list)
     period_start: date | None = None
     period_end: date | None = None
     territory: str = "Chile"
