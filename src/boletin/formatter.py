@@ -22,6 +22,14 @@ TEMA_LABEL = {
     "POLÍTICA": "Política",
     "NACIONAL": "Nacional",
     "INTERNACIONAL": "Internacional",
+    "DEPORTES": "Deportes",
+    "DEPORTE": "Deportes",
+    "MISCELANEO": "Misceláneo",
+    "MISCELÁNEO": "Misceláneo",
+    "CINE": "Cine y teatro",
+    "TEATRO": "Cine y teatro",
+    "CINE_Y_TEATRO": "Cine y teatro",
+    "CULTURA": "Cultura",
     "GENERAL": "General",
 }
 

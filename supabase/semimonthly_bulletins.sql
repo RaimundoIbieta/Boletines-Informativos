@@ -36,7 +36,7 @@ select
   'Panorama Quincenal de Chile y el Mundo',
   'Chile y Mundo · 15/fin',
   'directores, gerentes y analistas',
-  'Análisis ejecutivo por secciones. Economía: actividad, inflación, empleo, mercados y decisiones económicas. Social: salud, educación, seguridad social y cambios sociales. Política: Gobierno, oposición, partidos, Congreso, elecciones y actores políticos. Nacional: hechos relevantes ocurridos en Chile que no correspondan principalmente a las secciones anteriores (clima, emergencias, infraestructura, justicia). Internacional: acontecimientos mundiales con impacto o interés para Chile. Priorizar hechos distintos, recientes y estratégicamente relevantes. Incluir varios hechos por sección con resumen corto, un análisis de cada sección y una conclusión del periodo.',
+  'Análisis ejecutivo por secciones. Economía: actividad, inflación, empleo, mercados y decisiones económicas. Social: salud, educación, seguridad social y cambios sociales. Política: Gobierno, oposición, partidos, Congreso, elecciones y actores políticos. Nacional: hechos relevantes ocurridos en Chile que no correspondan principalmente a las secciones anteriores (clima, emergencias, infraestructura, justicia). Internacional: hechos del mundo (geopolítica, mercados globales, conflictos, decisiones de potencias u organismos internacionales) que puedan afectar a Chile; NO es “Chile en el extranjero”, chilenos en el exterior ni cobertura de Chile vista desde fuera. Priorizar hechos distintos, recientes y estratégicamente relevantes. Incluir varios hechos por sección con resumen corto, un análisis de cada sección y una conclusión del periodo.',
   '[
     {"q":"economía Chile Banco Central inflación empleo","topic":"ECONOMIA"},
     {"q":"Hacienda Chile crecimiento inversión mercados","topic":"ECONOMIA"},
@@ -50,9 +50,9 @@ select
     {"q":"actualidad nacional Chile regiones emergencia lluvia","topic":"NACIONAL"},
     {"q":"infraestructura transporte medio ambiente Chile","topic":"NACIONAL"},
     {"q":"justicia tribunales Contraloría Chile","topic":"NACIONAL"},
-    {"q":"actualidad internacional mundo geopolítica","topic":"INTERNACIONAL"},
-    {"q":"Estados Unidos China Europa América Latina","topic":"INTERNACIONAL"},
-    {"q":"economía mundial conflicto internacional impacto Chile","topic":"INTERNACIONAL"}
+    {"q":"geopolítica mundial conflicto guerra impacto Chile","topic":"INTERNACIONAL"},
+    {"q":"Estados Unidos China Europa comercio guerra aranceles","topic":"INTERNACIONAL"},
+    {"q":"Fed FMI OPEP mercados globales impacto América Latina Chile","topic":"INTERNACIONAL"}
   ]'::jsonb,
   '[
     "principales hechos y decisiones del periodo",

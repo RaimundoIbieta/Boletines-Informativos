@@ -224,8 +224,13 @@ export async function renderBulletinEditor(container, id) {
       <textarea id="queries" placeholder="cobre Chile OR Codelco | MINERIA">${escapeHtml(queriesToText(b?.queries))}</textarea>
       <label>Ejes de análisis (uno por línea)</label>
       <textarea id="axes">${escapeHtml((b?.analysis_axes || []).join('\n'))}</textarea>
-      <label>Secciones fijas (una por línea; opcional)</label>
+      <label>Secciones del informe (una por línea)</label>
       <textarea id="sections" placeholder="Economía&#10;Social&#10;Política&#10;Nacional&#10;Internacional">${escapeHtml((b?.sections || []).join('\n'))}</textarea>
+      <p class="muted" style="margin:4px 0 10px">
+        En formato <strong>Panorama</strong> estas secciones son libres: puedes usar Deportes, Misceláneo, Cine y teatro, Cultura, etc.
+        Cada línea debe coincidir con el TEMA de las búsquedas (ej. <code>consulta | DEPORTES</code>).
+        Si usas <strong>Internacional</strong>, debe significar hechos del mundo que puedan afectar a Chile, no “Chile en el extranjero”.
+      </p>
       <div class="grid grid-3">
         <div>
           <label>Frecuencia</label>
@@ -281,7 +286,7 @@ export async function renderBulletinEditor(container, id) {
         <option value="standard" ${(b?.output_format || 'standard') === 'standard' ? 'selected' : ''}>Estándar (comentario, riesgos y oportunidades por noticia)</option>
         <option value="panorama_sectional" ${b?.output_format === 'panorama_sectional' ? 'selected' : ''}>Panorama por secciones (resumen corto + síntesis de sección + conclusión)</option>
       </select>
-      <p class="muted" style="margin:4px 0 10px">El formato panorama aplica a boletines con secciones fijas (Economía, Social, Política, Nacional, Internacional).</p>
+      <p class="muted" style="margin:4px 0 10px">El formato panorama usa las secciones que definas arriba (no están un set fijo). El estándar ignora ese layout y mantiene el análisis por noticia.</p>
       <div class="grid grid-3" style="margin-top:8px">
         <div>
           <label>Desde (prueba)</label>

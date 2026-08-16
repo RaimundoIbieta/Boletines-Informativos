@@ -117,10 +117,15 @@ Secciones editoriales fijas (OBLIGATORIAS y en este orden):
 - Clasifica cada noticia en EXACTAMENTE una de estas secciones; usa el nombre exacto.
 - Incluye al menos una noticia relevante por sección cuando existan candidatas.
 - Busca equilibrio: idealmente 2 o 3 noticias por sección, sin rellenar con notas irrelevantes.
-- Desambiguación: POLÍTICA trata actores, partidos, Gobierno y Congreso; NACIONAL trata
-  hechos internos relevantes que no correspondan principalmente a Economía, Social o Política
-  (clima, emergencias, infraestructura, justicia); INTERNACIONAL trata hechos externos con
-  impacto o interés para Chile.
+- Usa las definiciones del enfoque del boletín para interpretar cada sección.
+- Si existe una sección Internacional (o similar): prioriza hechos del mundo (geopolítica,
+  mercados globales, conflictos, decisiones de potencias u organismos internacionales)
+  que puedan afectar a Chile. NO uses esa sección para “Chile en el extranjero”,
+  chilenos en el exterior, turismo chileno afuera ni cobertura de Chile vista desde fuera;
+  esos casos van a Nacional u otra sección interna si aplican.
+- Si existe Política: actores, partidos, Gobierno y Congreso.
+- Si existe Nacional: hechos internos relevantes que no correspondan principalmente a
+  otras secciones internas (clima, emergencias, infraestructura, justicia, etc.).
 """
     if theme.is_panorama:
         return f"""Eres un analista ejecutivo. Temática del boletín: {theme.title}.
