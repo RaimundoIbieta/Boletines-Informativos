@@ -32,6 +32,7 @@ class RemoteBulletin:
     active: bool = True
     period_mode: str = "last_n_days"
     period_days: int = 7
+    output_format: str = "standard"
 
     def theme_id(self) -> str:
         slug = re.sub(r"[^a-z0-9]+", "_", (self.short_label or "boletin").lower()).strip("_")
@@ -48,6 +49,7 @@ class RemoteBulletin:
             analysis_axes=self.analysis_axes,
             sections=self.sections,
             cadence=self.schedule_frequency,
+            output_format=self.output_format or "standard",
         )
 
 
@@ -131,6 +133,7 @@ def _from_row(row: dict[str, Any]) -> RemoteBulletin:
         active=bool(row.get("active", True)),
         period_mode=str(row.get("period_mode") or "last_n_days").lower(),
         period_days=int(row.get("period_days") if row.get("period_days") is not None else 7),
+        output_format=str(row.get("output_format") or "standard").lower(),
     )
 
 
@@ -178,7 +181,13 @@ def runtime_for_bulletin(base: RuntimeContext, remote: RemoteBulletin) -> Runtim
         github_pages=base.app.github_pages,
         themes={theme.id: theme},
     )
-    return RuntimeContext(app=app, secrets=base.secrets)
+    # SCHEDULE_HOUR/SCHEDULE_MINUTE del .env solo fijan la hora del motor local
+    # sin web. Un boletín de la web manda con la hora que el usuario guardó, o el
+    # motor de la Mac lo enviaría antes de tiempo y la nube lo daría por duplicado.
+    secrets = base.secrets.model_copy(
+        update={"schedule_hour": None, "schedule_minute": None}
+    )
+    return RuntimeContext(app=app, secrets=secrets)
 
 
 def fetch_bulletin_by_id(secrets: Settings, bulletin_id: str) -> RemoteBulletin | None:
@@ -256,8 +265,14 @@ def update_send_request(
         resp.raise_for_status()
 
 
-def already_sent_remote(secrets: Settings, bulletin_id: str, periodo_inicio: str) -> bool:
-    """True si ya hay un run publicado en Supabase para ese boletín/periodo."""
+def already_sent_remote(
+    secrets: Settings, bulletin_id: str, periodo_inicio: str, periodo_fin: str
+) -> bool:
+    """True si ya hay un run publicado en Supabase para ese boletín/periodo.
+
+    Compara inicio y fin: en modo quincenal el envío del día 15 (1→15) y el
+    del cierre mensual (1→fin) comparten inicio y se distinguen por el fin.
+    """
     if not supabase_configured(secrets):
         return False
     base = secrets.supabase_url.rstrip("/")
@@ -270,6 +285,7 @@ def already_sent_remote(secrets: Settings, bulletin_id: str, periodo_inicio: str
                 params={
                     "bulletin_id": f"eq.{bulletin_id}",
                     "periodo_inicio": f"eq.{periodo_inicio}",
+                    "periodo_fin": f"eq.{periodo_fin}",
                     "status": "eq.published",
                     "select": "id",
                     "limit": "1",

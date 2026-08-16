@@ -178,7 +178,8 @@ def unwrap_google_news_url(url: str) -> str:
     return ""
 
 
-def _parse_published(entry: dict) -> date | None:
+def _parse_published_dt(entry: dict) -> datetime | None:
+    """Fecha/hora de publicación del RSS, en UTC si el feed no trae zona."""
     for key in ("published", "updated"):
         raw = entry.get(key)
         if not raw:
@@ -187,16 +188,27 @@ def _parse_published(entry: dict) -> date | None:
             dt = parsedate_to_datetime(raw)
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
-            return dt.date()
+            return dt.astimezone(timezone.utc)
         except (TypeError, ValueError, IndexError):
             pass
     if entry.get("published_parsed"):
         try:
             t = entry["published_parsed"]
-            return date(t.tm_year, t.tm_mon, t.tm_mday)
+            return datetime(
+                t.tm_year, t.tm_mon, t.tm_mday,
+                getattr(t, "tm_hour", 0) or 0,
+                getattr(t, "tm_min", 0) or 0,
+                getattr(t, "tm_sec", 0) or 0,
+                tzinfo=timezone.utc,
+            )
         except Exception:
             pass
     return None
+
+
+def _parse_published(entry: dict) -> date | None:
+    dt = _parse_published_dt(entry)
+    return dt.date() if dt else None
 
 
 def _parse_spanish_date(day: str, month: str, year: str) -> date | None:
@@ -322,12 +334,24 @@ def collect_articles(
     queries: list[tuple[str, str]] | None = None,
     max_per_query: int = 15,
     fetch_body: bool = True,
+    cutoff: datetime | None = None,
 ) -> list[RawArticle]:
-    """Recolecta noticias estrictamente del rango [start, end], ambos inclusive."""
+    """Recolecta noticias estrictamente del rango [start, end], ambos inclusive.
+
+    Si `cutoff` tiene zona horaria, las entradas con hora verificable posteriores
+    a ese instante se descartan. Las que solo traen fecha (sin hora) se aceptan
+    si caen en el día de cierre.
+    """
     search_queries = queries or SEARCH_QUERIES
     seen_titles: set[str] = set()
     seen_urls: set[str] = set()
     articles: list[RawArticle] = []
+    cutoff_utc = None
+    if cutoff is not None:
+        if cutoff.tzinfo is None:
+            cutoff_utc = cutoff.replace(tzinfo=timezone.utc)
+        else:
+            cutoff_utc = cutoff.astimezone(timezone.utc)
 
     headers = {"User-Agent": USER_AGENT}
     with httpx.Client(headers=headers, timeout=25.0, follow_redirects=True) as client:
@@ -386,10 +410,23 @@ def collect_articles(
                     logger.info("Titular en lista negra, omitido: %s", title[:80])
                     continue
 
-                rss_date = _parse_published(entry)
+                published_at = _parse_published_dt(entry)
+                rss_date = published_at.date() if published_at else None
                 # Bing a veces marca fechas antiguas en RSS; no descartar aún:
                 # resolve_article_date validará con el cuerpo.
                 if rss_date and rss_date < start - timedelta(days=120):
+                    continue
+                if (
+                    cutoff_utc is not None
+                    and published_at is not None
+                    and published_at > cutoff_utc
+                ):
+                    logger.info(
+                        "Omitida por corte horario (%s > %s): %s",
+                        published_at.isoformat(),
+                        cutoff_utc.isoformat(),
+                        title[:80],
+                    )
                     continue
 
                 key = _normalize_title(title)
@@ -423,6 +460,7 @@ def collect_articles(
                         url=link,
                         source=_source_from_entry(entry),
                         published=effective,
+                        published_at=published_at,
                         snippet=snippet[:500],
                         full_text=full_text[:6000],
                         query_topic=topic,
@@ -430,7 +468,12 @@ def collect_articles(
                 )
                 count += 1
 
-    articles.sort(key=lambda a: a.published or date.min, reverse=True)
+    articles.sort(
+        key=lambda a: a.published_at or datetime.combine(
+            a.published or date.min, datetime.min.time(), tzinfo=timezone.utc
+        ),
+        reverse=True,
+    )
     logger.info(
         "Artículos en periodo %s→%s: %s",
         start.isoformat(),

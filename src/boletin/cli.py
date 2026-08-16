@@ -80,15 +80,31 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 return 1
 
     # Preferir boletines de la web (Supabase) en modo agenda o con --from-web
+    bulletin_id = (getattr(args, "bulletin_id", None) or "").strip() or None
+    force_resend = bool(getattr(args, "force_resend", False))
     use_web = (
         supabase_configured(ctx.secrets)
         and not args.theme
         and not getattr(args, "local", False)
-        and (bool(args.scheduled) or bool(getattr(args, "from_web", False)))
+        and (
+            bool(args.scheduled)
+            or bool(getattr(args, "from_web", False))
+            or bool(bulletin_id)
+        )
     )
     if use_web:
         try:
-            remotes = fetch_active_bulletins(ctx.secrets)
+            if bulletin_id:
+                one = fetch_bulletin_by_id(ctx.secrets, bulletin_id)
+                remotes = [one] if one and one.active and one.emails and one.queries else []
+                if not remotes:
+                    logging.error(
+                        "No se encontró el boletín %s activo con correos y búsquedas.",
+                        bulletin_id,
+                    )
+                    return 1
+            else:
+                remotes = fetch_active_bulletins(ctx.secrets)
         except Exception as exc:
             logging.error("No se pudieron leer boletines de Supabase: %s", exc)
             return 1
@@ -97,7 +113,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             return _run_web_bulletins(
                 ctx,
                 remotes,
-                scheduled=bool(args.scheduled),
+                scheduled=bool(args.scheduled) and not force_resend and not bulletin_id,
                 send=send,
                 reference=reference,
                 dry_run=args.dry_run,
@@ -107,6 +123,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 already_sent_remote=already_sent_remote,
                 mark_sent=mark_sent,
                 record_run=record_run,
+                force_resend=force_resend,
             )
         logging.info("Supabase sin boletines activos con correos; uso config.yaml local.")
 
@@ -243,6 +260,7 @@ def _run_web_bulletins(
     already_sent_remote,
     mark_sent,
     record_run,
+    force_resend: bool = False,
 ) -> int:
     from boletin.supabase_store import runtime_for_bulletin
 
@@ -251,7 +269,7 @@ def _run_web_bulletins(
         ctx = runtime_for_bulletin(base_ctx, remote)
         if scheduled and not should_run_scheduled(ctx):
             schedule_label = (
-                "días 1 y 15"
+                "días 15 y fin de mes"
                 if remote.schedule_frequency == "semimonthly"
                 else remote.schedule_weekday
             )
@@ -265,14 +283,17 @@ def _run_web_bulletins(
             continue
 
         start, end = ctx.period_bounds(reference)
-        if scheduled and (
-            already_sent(remote.id, start)
-            or already_sent_remote(ctx.secrets, remote.id, start.isoformat())
+        if scheduled and not force_resend and (
+            already_sent(remote.id, start, end)
+            or already_sent_remote(
+                ctx.secrets, remote.id, start.isoformat(), end.isoformat()
+            )
         ):
             logging.info(
-                "Omitido %s (ya enviado para periodo %s)",
+                "Omitido %s (ya enviado para periodo %s a %s)",
                 remote.short_label,
                 start.isoformat(),
+                end.isoformat(),
             )
             continue
 
@@ -287,13 +308,14 @@ def _run_web_bulletins(
             return 1
 
         logging.info(
-            "Generando «%s» → %s",
+            "Generando «%s» → %s%s",
             remote.title,
             ", ".join(remote.emails),
+            " (reposición)" if force_resend else "",
         )
         boletin, md_path, pdf_path = run_boletin(
             ctx,
-            send_email=send,
+            send_email=False,
             reference_date=reference,
             dry_run=dry_run,
             skip_drive=skip_drive,
@@ -303,9 +325,23 @@ def _run_web_bulletins(
         print(f"  Noticias: {len(boletin.noticias)}")
         print(f"  Markdown: {md_path}")
         print(f"  PDF:      {pdf_path}")
-        if send:
+        if send and not dry_run:
+            from boletin.emailer import send_boletin_email
+            from boletin.formatter import to_html_email, to_markdown
+
+            subject_note = "versión actualizada · " if force_resend else ""
+            markdown = to_markdown(boletin, author_name=ctx.author_name)
+            send_boletin_email(
+                ctx.secrets,
+                boletin,
+                recipients=ctx.emails,
+                html_body=to_html_email(boletin, author_name=ctx.author_name),
+                text_body=markdown,
+                pdf_path=pdf_path,
+                subject_prefix=subject_note,
+            )
             print(f"  Enviado a: {', '.join(ctx.emails)}")
-            mark_sent(remote.id, start, note=f"{len(boletin.noticias)} noticias")
+            mark_sent(remote.id, start, end, note=f"{len(boletin.noticias)} noticias")
             record_run(
                 ctx.secrets,
                 bulletin_id=remote.id,
@@ -439,6 +475,17 @@ def main(argv: list[str] | None = None) -> int:
         "--from-web",
         action="store_true",
         help="Usar boletines/correos/frecuencia de Supabase (todos los activos)",
+    )
+    run_p.add_argument(
+        "--bulletin-id",
+        type=str,
+        default=None,
+        help="Ejecutar solo este boletín de Supabase (UUID)",
+    )
+    run_p.add_argument(
+        "--force-resend",
+        action="store_true",
+        help="Regenerar y reenviar aunque ya exista un envío del mismo periodo",
     )
     run_p.add_argument(
         "--process-tests",
