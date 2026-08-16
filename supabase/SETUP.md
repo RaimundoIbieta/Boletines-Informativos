@@ -109,6 +109,21 @@ No proyecta si la serie tiene menos de 4 tramos, y avisa cuando la serie es tan 
 la tendencia explica poco de la variación. **Una proyección extrapola lo observado: un hecho
 nuevo puede romperla.**
 
+### Cobertura geográfica estricta
+
+El territorio funciona como una dimensión de análisis, no como una regla de descarte. Cada
+pieza relevante se clasifica en:
+
+- territorio objetivo;
+- resto del país (cuando el objetivo es regional o comunal);
+- contexto internacional;
+- cruce entre el territorio objetivo y el extranjero; o
+- ubicación indeterminada, si el texto no entrega evidencia verificable.
+
+Una nota extranjera que hable del tema **se conserva**. El panel y los archivos exportados
+separan su aporte de la conversación del territorio objetivo y muestran los países
+mencionados. El clasificador no inventa una ubicación a partir del idioma o del tema.
+
 ### Qué opinan del actor
 
 El informe incluye una sección «Qué se dice del actor» que mide la conversación **sobre** él:

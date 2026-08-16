@@ -152,6 +152,29 @@ def write_markdown(report: AnalysisReport, path: Path) -> Path:
         for e in n.evidence[:3]:
             lines.append(f"  - {e}")
         lines.append("")
+    geo_counts = report.geography.get("scope_counts") or {}
+    foreign = report.geography.get("foreign_countries") or {}
+    if geo_counts:
+        lines.extend(["", "## Cobertura geográfica estricta", ""])
+        lines.append(
+            "Las piezas extranjeras relevantes se conservan y se separan de la "
+            "conversación del territorio objetivo."
+        )
+        lines.extend(
+            [
+                f"- **Territorio objetivo:** {geo_counts.get('target_territory', 0)}",
+                f"- **Objetivo + extranjero:** {geo_counts.get('cross_border', 0)}",
+                f"- **Solo contexto internacional:** {geo_counts.get('international', 0)}",
+                f"- **Resto del país:** {geo_counts.get('rest_of_country', 0)}",
+                f"- **Sin ubicación verificable:** {geo_counts.get('undetermined', 0)}",
+            ]
+        )
+        if foreign:
+            lines.append("")
+            lines.append(
+                "**Países extranjeros mencionados:** "
+                + ", ".join(f"{country} ({count})" for country, count in list(foreign.items())[:15])
+            )
     lines.extend(["", "## Cobertura por plataforma", ""])
     if report.coverage.platforms:
         lines.append("| Plataforma | Documentos | Cómo se obtuvo |")
@@ -189,6 +212,10 @@ def write_csv(report: AnalysisReport, path: Path) -> Path:
                 "url",
                 "published_at",
                 "excerpt",
+                "geographic_scope",
+                "source_country",
+                "target_places",
+                "foreign_countries",
             ]
         )
         for d in report.documents:
@@ -201,6 +228,10 @@ def write_csv(report: AnalysisReport, path: Path) -> Path:
                     d.url,
                     d.published_at.isoformat() if d.published_at else "",
                     (d.excerpt or "")[:300],
+                    (d.metadata or {}).get("geographic_scope", "undetermined"),
+                    (d.metadata or {}).get("source_country", ""),
+                    "; ".join((d.metadata or {}).get("target_places") or []),
+                    "; ".join((d.metadata or {}).get("foreign_countries") or []),
                 ]
             )
     return path
@@ -235,6 +266,26 @@ def write_html(report: AnalysisReport, path: Path) -> Path:
         for d in report.documents[:40]
         if d.url
     )
+    geo_counts = report.geography.get("scope_counts") or {}
+    foreign = report.geography.get("foreign_countries") or {}
+    geography_html = ""
+    if geo_counts:
+        country_items = "".join(
+            f"<li>{country}: {count}</li>" for country, count in list(foreign.items())[:15]
+        )
+        geography_html = (
+            "<div class='card'><h2>Cobertura geográfica estricta</h2>"
+            "<p class='muted'>Clasifica la relación territorial sin eliminar menciones "
+            "extranjeras relevantes.</p><ul>"
+            f"<li>Territorio objetivo: {geo_counts.get('target_territory', 0)}</li>"
+            f"<li>Objetivo + extranjero: {geo_counts.get('cross_border', 0)}</li>"
+            f"<li>Solo contexto internacional: {geo_counts.get('international', 0)}</li>"
+            f"<li>Resto del país: {geo_counts.get('rest_of_country', 0)}</li>"
+            f"<li>Sin ubicación verificable: {geo_counts.get('undetermined', 0)}</li>"
+            "</ul>"
+            + (f"<h3>Países extranjeros mencionados</h3><ul>{country_items}</ul>" if country_items else "")
+            + "</div>"
+        )
     opinion_html = ""
     if report.opinion:
         blocks = []
@@ -392,6 +443,7 @@ h1,h2{{font-family:system-ui,sans-serif}} .muted{{color:#64748b}} .card{{backgro
 <div class="card"><h2>Actores</h2><ul>{actors_html}</ul></div>
 {opinion_html}
 {trend_html}
+{geography_html}
 <div class="card"><h2>Cobertura por plataforma</h2>{platforms_html}</div>
 <div class="card"><h2>Advertencias</h2><ul>{warnings_html}</ul></div>
 <div class="card"><h2>Fuentes</h2><ul>{sources_html}</ul></div>
@@ -532,6 +584,29 @@ def write_pdf(report: AnalysisReport, path: Path) -> Path:
             )
         write_block(
             "La proyeccion extrapola la serie observada; un hecho nuevo puede romperla."
+        )
+    geo_counts = report.geography.get("scope_counts") or {}
+    foreign = report.geography.get("foreign_countries") or {}
+    if geo_counts:
+        pdf.ln(1)
+        write_block("Cobertura geografica estricta", bold=True, size=12, h=8)
+        write_block(
+            "- Territorio objetivo: "
+            f"{geo_counts.get('target_territory', 0)} | objetivo + extranjero: "
+            f"{geo_counts.get('cross_border', 0)} | internacional: "
+            f"{geo_counts.get('international', 0)} | resto del pais: "
+            f"{geo_counts.get('rest_of_country', 0)} | sin ubicacion verificable: "
+            f"{geo_counts.get('undetermined', 0)}."
+        )
+        if foreign:
+            write_block(
+                "- Paises extranjeros mencionados: "
+                + ", ".join(
+                    f"{country} ({count})" for country, count in list(foreign.items())[:15]
+                )
+            )
+        write_block(
+            "Las piezas extranjeras relevantes se conservan y se analizan por separado."
         )
     pdf.ln(1)
     write_block("Cobertura por plataforma", bold=True, size=12, h=8)
