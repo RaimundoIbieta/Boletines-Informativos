@@ -28,9 +28,12 @@ from media_analyzer.models import (
     OpinionAnalysis,
     SourceDocument,
     StoryCluster,
+    TrendAnalysis,
 )
+from media_analyzer.forecast import build_trend_analysis, project_scenarios_with_gemini
 from media_analyzer.normalization import content_hash
 from media_analyzer.opinion import build_opinion_analysis
+from media_analyzer.relevance import filter_relevant
 from media_analyzer.sentiment import analyze_with_llm
 from media_analyzer.validation import month_windows
 
@@ -163,6 +166,39 @@ def _opinion_findings(analyses: list[OpinionAnalysis]) -> list[str]:
                     f"gana {duel.winner} con {duel.actor_share:.0f}% de las menciones a favor "
                     f"de {duel.actor} sobre {duel.total} comparaciones encontradas."
                 )
+    return findings
+
+
+def _trend_findings(trend: TrendAnalysis) -> list[str]:
+    if not trend.points:
+        return []
+    unit = trend.bucket_label
+    total = sum(p.documents for p in trend.points)
+    if trend.direction == "desconocida":
+        # Serie demasiado corta: se informa el volumen sin afirmar una tendencia.
+        findings = [
+            f"Se observaron {total} piezas repartidas en {len(trend.points)} "
+            f"{unit}s; no alcanza para establecer una tendencia."
+        ]
+        if trend.note:
+            findings.append(trend.note)
+        return findings
+    findings = [
+        f"El volumen por {unit} es {trend.direction} "
+        f"(promedio {trend.average:.1f} piezas por {unit}, "
+        f"pico de {trend.peak_documents} el {trend.peak_period})."
+    ]
+    if trend.tone_direction != "desconocida":
+        findings.append(f"El tono hacia el actor principal viene {trend.tone_direction}.")
+    if trend.reliable:
+        nxt = trend.projection[0]
+        findings.append(
+            f"Si la dinámica se mantiene, para {trend.bucket_article} {unit} "
+            f"del {nxt.period_start} se esperan unas {nxt.expected:.0f} piezas "
+            f"(entre {nxt.low:.0f} y {nxt.high:.0f})."
+        )
+    elif trend.note:
+        findings.append(trend.note)
     return findings
 
 
@@ -402,6 +438,10 @@ def run_analysis(
 
     progress(50, "deduplicating")
     discovered = len(documents)
+    # Los buscadores devuelven piezas que solo comparten una palabra con la consulta.
+    documents, off_topic = filter_relevant(documents, request.topic, request.actors)
+    if off_topic:
+        logger.info("Descartados por fuera de tema: %s", len(off_topic))
     documents = dedupe_documents(documents)
 
     progress(60, "geography")
@@ -439,6 +479,18 @@ def run_analysis(
         for analysis in report.opinion:
             if analysis.bias_note:
                 report.warnings.append(f"{analysis.actor}: {analysis.bias_note}")
+
+    actors, _ = _opinion_targets(request)
+    trend = build_trend_analysis(documents, request, actor=actors[0] if actors else "")
+    if trend.reliable and gemini_api_key:
+        try:
+            trend.scenarios = project_scenarios_with_gemini(
+                request, trend, report.findings, gemini_api_key, gemini_model
+            )
+        except Exception as exc:
+            logger.warning("Escenarios prospectivos fallaron: %s", exc)
+    report.trend = trend
+    report.findings = [*_trend_findings(trend), *report.findings]
     report.geography = {
         "mentions": [
             {
@@ -453,6 +505,10 @@ def run_analysis(
         "top_places": dict(Counter(g.place for g in geo).most_common(15)),
     }
     by_source = Counter(d.source_type for d in documents)
+    if off_topic:
+        errors["fuera_de_tema"] = (
+            f"{len(off_topic)} piezas descartadas por no tratar sobre «{request.topic}»."
+        )
     report.coverage = CoverageMetrics(
         documents_discovered=discovered,
         documents_included=len(documents),

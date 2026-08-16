@@ -442,6 +442,70 @@ export async function renderMediaAnalyzerDetail(container, id) {
     };
   };
 
+  const trend = result?.trend || null;
+  const bucketLabel = { day: 'día', week: 'semana', month: 'mes' }[trend?.bucket] || 'tramo';
+  let trendHtml = '';
+  if (trend && (trend.points || []).length) {
+    const shown = trend.points.slice(-12);
+    const projection = trend.projection || [];
+    const top = Math.max(
+      1,
+      ...shown.map((p) => p.documents || 0),
+      ...projection.map((p) => p.high || 0)
+    );
+    const bars = [
+      ...shown.map((p) => {
+        const h = Math.max(2, Math.round((100 * (p.documents || 0)) / top));
+        return `<div title="${escapeHtml(p.period_start)}: ${p.documents} piezas" style="flex:1;display:flex;align-items:flex-end">
+          <div style="width:100%;height:${h}px;background:#2563eb;border-radius:2px 2px 0 0"></div></div>`;
+      }),
+      ...projection.map((p) => {
+        const h = Math.max(2, Math.round((100 * (p.expected || 0)) / top));
+        return `<div title="proyección ${escapeHtml(p.period_start)}: ${Math.round(p.expected)}" style="flex:1;display:flex;align-items:flex-end">
+          <div style="width:100%;height:${h}px;background:#93c5fd;border-top:2px dashed #2563eb;border-radius:2px 2px 0 0"></div></div>`;
+      }),
+    ].join('');
+    const projectionRows = projection
+      .map(
+        (p) => `<tr>
+          <td>${escapeHtml(p.period_start)}</td>
+          <td>${Math.round(p.expected)}</td>
+          <td class="muted">${Math.round(p.low)} – ${Math.round(p.high)}</td>
+        </tr>`
+      )
+      .join('');
+    const scenarios = (trend.scenarios || [])
+      .map(
+        (s) => `<li><strong>${escapeHtml(s.nombre || '')}</strong>
+          <span class="chip">${escapeHtml(s.probabilidad || '')}</span><br>
+          ${escapeHtml(s.descripcion || '')}
+          ${
+            (s.senales || []).length
+              ? `<br><span class="muted">Señales: ${escapeHtml((s.senales || []).join('; '))}</span>`
+              : ''
+          }</li>`
+      )
+      .join('');
+    trendHtml = `
+    <div class="card" style="margin-top:12px">
+      <h2>Tendencia y proyección</h2>
+      <p>Volumen <strong>${escapeHtml(trend.direction || '')}</strong> por ${bucketLabel} ·
+        promedio ${escapeHtml(trend.average ?? 0)} ·
+        pico ${escapeHtml(trend.peak_documents ?? 0)} el ${escapeHtml(trend.peak_period || '—')}
+        ${trend.tone_direction && trend.tone_direction !== 'desconocida' ? `· tono <strong>${escapeHtml(trend.tone_direction)}</strong>` : ''}</p>
+      <div style="display:flex;gap:3px;height:110px;align-items:flex-end;margin:12px 0">${bars}</div>
+      <p class="muted">Azul: observado por ${bucketLabel}. Celeste punteado: proyectado.</p>
+      ${
+        projectionRows
+          ? `<table class="table"><thead><tr><th>Desde</th><th>Esperado</th><th>Rango</th></tr></thead><tbody>${projectionRows}</tbody></table>`
+          : ''
+      }
+      ${trend.note ? `<p style="color:#b45309">${escapeHtml(trend.note)}</p>` : ''}
+      ${scenarios ? `<h3>Escenarios</h3><ul>${scenarios}</ul>` : ''}
+      <p class="muted">La proyección extrapola la serie observada; un hecho nuevo puede romperla.</p>
+    </div>`;
+  }
+
   const opinionHtml = opinion
     .map((op) => {
       const aud = stanceShares(op.audience);
@@ -562,6 +626,7 @@ export async function renderMediaAnalyzerDetail(container, id) {
     </div>`
         : ''
     }
+    ${trendHtml}
     <div class="card" style="margin-top:12px">
       <h2>Actores</h2>
       <table class="table"><thead><tr><th>Actor</th><th>Menciones</th><th>Score</th><th>Citas</th></tr></thead>

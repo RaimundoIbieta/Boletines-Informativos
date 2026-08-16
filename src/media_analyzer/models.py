@@ -309,6 +309,77 @@ class OpinionAnalysis(BaseModel):
         )
 
 
+# Con menos tramos que esto una tendencia no significa nada.
+MIN_TREND_POINTS = 4
+
+
+class TrendPoint(BaseModel):
+    """Un tramo de la serie temporal observada."""
+
+    period_start: date
+    documents: int = 0
+    favorable: int = 0
+    critical: int = 0
+
+    @property
+    def opinionated(self) -> int:
+        return self.favorable + self.critical
+
+    @property
+    def tone_balance(self) -> float:
+        """De -100 (todo crítico) a +100 (todo favorable)."""
+        if not self.opinionated:
+            return 0.0
+        return round(100 * (self.favorable - self.critical) / self.opinionated, 1)
+
+
+class ProjectionPoint(BaseModel):
+    """Valor esperado para un tramo futuro, con su banda de incertidumbre."""
+
+    period_start: date
+    expected: float = 0.0
+    low: float = 0.0
+    high: float = 0.0
+
+
+class TrendAnalysis(BaseModel):
+    """Hacia dónde va el volumen y el tono de la conversación."""
+
+    bucket: Literal["day", "week", "month"] = "day"
+    points: list[TrendPoint] = Field(default_factory=list)
+    projection: list[ProjectionPoint] = Field(default_factory=list)
+    horizon: int = 3
+    direction: Literal["creciente", "estable", "decreciente", "desconocida"] = "desconocida"
+    slope: float = 0.0
+    fit: float = 0.0
+    average: float = 0.0
+    momentum: float = 0.0
+    tone_direction: Literal["mejorando", "estable", "empeorando", "desconocida"] = "desconocida"
+    tone_slope: float = 0.0
+    peak_period: date | None = None
+    peak_documents: int = 0
+    scenarios: list[dict[str, Any]] = Field(default_factory=list)
+    note: str = ""
+
+    @property
+    def bucket_label(self) -> str:
+        return {"day": "día", "week": "semana", "month": "mes"}.get(self.bucket, self.bucket)
+
+    @property
+    def bucket_article(self) -> str:
+        """Artículo que concuerda con la unidad: «la semana», «el día»."""
+        return "la" if self.bucket == "week" else "el"
+
+    @property
+    def projectable(self) -> bool:
+        return len(self.points) >= MIN_TREND_POINTS and bool(self.projection)
+
+    @property
+    def reliable(self) -> bool:
+        """Una proyección con mal ajuste no debe presentarse como pronóstico."""
+        return self.projectable and self.fit >= 0.3
+
+
 class CoverageMetrics(BaseModel):
     documents_discovered: int = 0
     documents_included: int = 0
@@ -334,6 +405,7 @@ class AnalysisReport(BaseModel):
     trends: list[dict[str, Any]] = Field(default_factory=list)
     sentiment: dict[str, Any] = Field(default_factory=dict)
     opinion: list[OpinionAnalysis] = Field(default_factory=list)
+    trend: TrendAnalysis | None = None
     geography: dict[str, Any] = Field(default_factory=dict)
     clusters: list[StoryCluster] = Field(default_factory=list)
     documents: list[SourceDocument] = Field(default_factory=list)

@@ -87,6 +87,28 @@ X, Instagram, Facebook y TikTok **no permiten buscar por tema sin sesión**: cer
 pública. Para X se lee el timeline público de cuentas concretas; para las otras tres solo hay
 cobertura indirecta. Cada análisis muestra una tabla de cobertura con el método usado.
 
+### Cualquier tema, no solo personas
+
+El analizador es genérico: el tema, los actores y los rivales son parámetros del formulario.
+Sirve igual para una política pública («reforma de pensiones»), una institución, una empresa,
+una coyuntura electoral o una persona. Antes de analizar, descarta las piezas que el buscador
+devolvió por compartir una palabra con la consulta pero que no tratan del tema, y reporta
+cuántas descartó.
+
+### Tendencia y proyección
+
+Cada informe incluye la evolución en el tiempo y hacia dónde apunta:
+
+- Agrupa por día, semana o mes según el largo del periodo.
+- Indica si el volumen es creciente, estable o decreciente, y si el tono mejora o empeora.
+- Proyecta los próximos tramos con una banda de incertidumbre calculada sobre la dispersión
+  real de la serie.
+- Con `GEMINI_API_KEY` agrega escenarios prospectivos con sus señales a vigilar.
+
+No proyecta si la serie tiene menos de 4 tramos, y avisa cuando la serie es tan irregular que
+la tendencia explica poco de la variación. **Una proyección extrapola lo observado: un hecho
+nuevo puede romperla.**
+
 ### Qué opinan del actor
 
 El informe incluye una sección «Qué se dice del actor» que mide la conversación **sobre** él:

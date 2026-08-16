@@ -24,24 +24,31 @@ from media_analyzer.models import (
 
 logger = logging.getLogger(__name__)
 
-# Léxico bilingüe: Reddit y Bluesky mezclan inglés y español.
+# Léxico bilingüe y temáticamente neutro: sirve igual para política, empresas,
+# personas o cualquier tema. Reddit y Bluesky mezclan inglés y español.
 FAVORABLE = {
-    "goat", "mejor", "leyenda", "legend", "ídolo", "idolo", "idol", "crack", "genio",
-    "máquina", "maquina", "monstruo", "fenómeno", "fenomeno", "increíble", "increible",
-    "incredible", "amazing", "brilliant", "clase", "class", "respeto", "respect",
-    "admiro", "admirable", "grande", "greatest", "best", "king", "rey", "insuperable",
-    "imparable", "espectacular", "impresionante", "love", "amo", "querido", "beloved",
-    "ejemplo", "profesional", "trabajador", "dedicación", "dedicacion", "clutch",
-    "histórico", "historico", "top", "élite", "elite", "gigante", "bestia",
+    "mejor", "leyenda", "legend", "ídolo", "idolo", "idol", "crack", "genio",
+    "increíble", "increible", "incredible", "amazing", "brilliant", "clase", "class",
+    "respeto", "respect", "admiro", "admirable", "grande", "greatest", "best",
+    "insuperable", "espectacular", "impresionante", "love", "amo", "querido", "beloved",
+    "ejemplo", "profesional", "dedicación", "dedicacion", "histórico", "historico",
+    "élite", "elite", "excelente", "excellent", "acierto", "logro", "éxito", "exito",
+    "capaz", "competente", "honesto", "íntegro", "integro", "transparente", "valiente",
+    "apoyo", "apoyamos", "confianza", "esperanza", "necesario", "correcto", "justo",
+    "bien", "bueno", "buena", "positivo", "favorable", "aplaudo", "felicito",
+    "eficiente", "sólido", "solido", "serio", "riguroso", "creíble", "creible",
 }
 CRITICAL = {
     "sobrevalorado", "overrated", "peor", "worst", "ego", "egoísta", "egoista",
-    "egotistical", "arrogante", "arrogant", "odio", "hate", "detesto", "despise",
-    "payaso", "clown", "ridículo", "ridiculo", "ridiculous", "llorón", "lloron",
-    "crying", "tramposo", "cheat", "diver", "acabado", "washed", "finished",
-    "decadencia", "fracaso", "failure", "penaldo", "pathetic", "patético", "patetico",
-    "cringe", "annoying", "insufferable", "fraude", "fraud", "sobrestimado",
-    "mediocre", "vergüenza", "verguenza", "embarrassing", "choke", "flop",
+    "arrogante", "arrogant", "odio", "hate", "detesto", "despise", "payaso", "clown",
+    "ridículo", "ridiculo", "ridiculous", "tramposo", "cheat", "acabado", "washed",
+    "decadencia", "fracaso", "failure", "pathetic", "patético", "patetico", "cringe",
+    "annoying", "insufferable", "fraude", "fraud", "mediocre", "vergüenza", "verguenza",
+    "embarrassing", "corrupto", "corrupción", "corrupcion", "mentiroso", "mentira",
+    "miente", "incapaz", "incompetente", "inútil", "inutil", "desastre", "escándalo",
+    "escandalo", "polémico", "polemico", "rechazo", "repudio", "critico", "criticable",
+    "irresponsable", "peligroso", "grave", "malo", "mala", "pésimo", "pesimo",
+    "negativo", "falso", "populista", "autoritario", "abuso", "impresentable",
 }
 # Negadores que invierten el sentido de la frase.
 NEGATORS = {"no", "not", "nunca", "never", "nadie", "nobody", "ni", "sin", "tampoco"}
@@ -97,7 +104,7 @@ def is_media_voice(doc: SourceDocument) -> bool:
 def name_keys(name: str) -> list[str]:
     """Formas en que puede aparecer un nombre: completo y cada parte significativa.
 
-    La gente escribe «Cristiano», «Ronaldo» o «CR7», casi nunca el nombre completo.
+    La gente rara vez escribe el nombre completo: usa el apellido o el nombre solo.
     """
     value = (name or "").strip().lower()
     if not value:
