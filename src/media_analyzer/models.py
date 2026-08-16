@@ -132,6 +132,24 @@ class GeoObservation(BaseModel):
     evidence: str = ""
 
 
+class GeoScopeClassification(BaseModel):
+    """Relación territorial de una pieza sin excluir la conversación extranjera."""
+
+    document_id: str
+    scope: Literal[
+        "target_territory",
+        "rest_of_country",
+        "international",
+        "cross_border",
+        "undetermined",
+    ] = "undetermined"
+    source_country: str = ""
+    target_places: list[str] = Field(default_factory=list)
+    foreign_countries: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
+
+
 class StoryCluster(BaseModel):
     id: str
     title: str

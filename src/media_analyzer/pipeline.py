@@ -19,7 +19,7 @@ from media_analyzer.connectors.collect import (
 )
 from media_analyzer.deduplication import cluster_same_story, dedupe_documents
 from media_analyzer.extractors.files import extract_text_file
-from media_analyzer.geography import detect_geography
+from media_analyzer.geography import classify_geographic_scope, detect_geography
 from media_analyzer.models import (
     RESTRICTED_PLATFORMS,
     AnalysisReport,
@@ -446,6 +446,7 @@ def run_analysis(
 
     progress(60, "geography")
     geo = detect_geography(documents)
+    geo_scopes = classify_geographic_scope(documents, request)
 
     progress(70, "analyzing")
     report = analyze_with_llm(
@@ -492,6 +493,28 @@ def run_analysis(
     report.trend = trend
     report.findings = [*_trend_findings(trend), *report.findings]
     report.geography = {
+        "scope_mode": "strict_classification_without_exclusion",
+        "target": request.territory_label,
+        "scope_counts": dict(Counter(item.scope for item in geo_scopes)),
+        "foreign_countries": dict(
+            Counter(
+                country
+                for item in geo_scopes
+                for country in item.foreign_countries
+            ).most_common(20)
+        ),
+        "documents": [
+            {
+                "document_id": item.document_id,
+                "scope": item.scope,
+                "source_country": item.source_country,
+                "target_places": item.target_places,
+                "foreign_countries": item.foreign_countries,
+                "evidence": item.evidence,
+                "confidence": item.confidence,
+            }
+            for item in geo_scopes
+        ],
         "mentions": [
             {
                 "place": g.place,
@@ -504,6 +527,18 @@ def run_analysis(
         ],
         "top_places": dict(Counter(g.place for g in geo).most_common(15)),
     }
+    scope_counts = Counter(item.scope for item in geo_scopes)
+    if geo_scopes:
+        report.findings = [
+            (
+                f"Cobertura geográfica: {scope_counts.get('target_territory', 0)} piezas "
+                f"del territorio objetivo, {scope_counts.get('cross_border', 0)} que lo "
+                f"conectan con el extranjero, {scope_counts.get('international', 0)} "
+                f"internacionales y {scope_counts.get('undetermined', 0)} sin ubicación "
+                "verificable. Ninguna pieza extranjera relevante fue descartada."
+            ),
+            *report.findings,
+        ]
     by_source = Counter(d.source_type for d in documents)
     if off_topic:
         errors["fuera_de_tema"] = (

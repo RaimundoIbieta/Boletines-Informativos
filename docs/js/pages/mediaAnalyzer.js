@@ -425,6 +425,15 @@ export async function renderMediaAnalyzerDetail(container, id) {
   const geography = result?.geography || {};
   const trends = result?.trends || [];
   const topPlaces = Object.entries(geography.top_places || {});
+  const geoScopes = geography.scope_counts || {};
+  const foreignCountries = Object.entries(geography.foreign_countries || {});
+  const geoScopeLabels = {
+    target_territory: 'Territorio objetivo',
+    rest_of_country: 'Resto del país',
+    international: 'Contexto internacional',
+    cross_border: 'Objetivo + extranjero',
+    undetermined: 'Sin ubicación verificable',
+  };
   const platforms = coverage.platforms || [];
   const opinion = result?.opinion || [];
 
@@ -662,7 +671,29 @@ export async function renderMediaAnalyzerDetail(container, id) {
         }</ul>
       </div>
       <div class="card">
-        <h2>Territorio / menciones</h2>
+        <h2>Cobertura geográfica estricta</h2>
+        <p class="muted">Clasifica la relación territorial sin eliminar menciones extranjeras relevantes.</p>
+        <ul>
+          <li>Territorio objetivo: ${escapeHtml(geoScopes.target_territory ?? 0)}</li>
+          <li>Objetivo + extranjero: ${escapeHtml(geoScopes.cross_border ?? 0)}</li>
+          <li>Solo contexto internacional: ${escapeHtml(geoScopes.international ?? 0)}</li>
+          ${
+            geoScopes.rest_of_country != null
+              ? `<li>Resto del país: ${escapeHtml(geoScopes.rest_of_country)}</li>`
+              : ''
+          }
+          <li>Sin ubicación verificable: ${escapeHtml(geoScopes.undetermined ?? 0)}</li>
+        </ul>
+        ${
+          foreignCountries.length
+            ? `<p><strong>Países extranjeros mencionados</strong></p>
+               <ul>${foreignCountries
+                 .slice(0, 12)
+                 .map(([country, count]) => `<li>${escapeHtml(country)}: ${escapeHtml(count)}</li>`)
+                 .join('')}</ul>`
+            : ''
+        }
+        <h3 style="margin-top:12px">Lugares mencionados</h3>
         <ul>${
           topPlaces.length
             ? topPlaces.map(([k, v]) => `<li>${escapeHtml(k)}: ${escapeHtml(v)}</li>`).join('')
@@ -706,15 +737,26 @@ export async function renderMediaAnalyzerDetail(container, id) {
     </div>
     <div class="card" style="margin-top:12px">
       <h2>Fuentes (muestra)</h2>
-      <ul>${(docs || [])
+      <label for="geo-scope-filter">Filtrar por relación geográfica</label>
+      <select id="geo-scope-filter">
+        <option value="">Todas</option>
+        ${Object.entries(geoScopeLabels)
+          .map(([value, label]) => `<option value="${value}">${escapeHtml(label)}</option>`)
+          .join('')}
+      </select>
+      <ul id="geo-source-list">${(docs || [])
         .map((d) => {
           const safe = /^https?:\/\//i.test(d.url || '') ? d.url : '';
-          return `<li>${
+          const scope = d.metadata?.geographic_scope || 'undetermined';
+          const countries = d.metadata?.foreign_countries || [];
+          return `<li data-geo-scope="${escapeHtml(scope)}">${
             safe
               ? `<a href="${escapeHtml(safe)}" target="_blank" rel="noopener">${escapeHtml(d.title || safe)}</a>`
               : escapeHtml(d.title || 'sin título')
           }
-          <span class="muted"> · ${escapeHtml(d.publisher || '')} · ${escapeHtml(d.source_type || '')}</span></li>`;
+          <span class="muted"> · ${escapeHtml(d.publisher || '')} · ${escapeHtml(d.source_type || '')}
+          · ${escapeHtml(geoScopeLabels[scope] || scope)}
+          ${countries.length ? ` (${escapeHtml(countries.join(', '))})` : ''}</span></li>`;
         })
         .join('')}</ul>
     </div>
@@ -736,6 +778,15 @@ export async function renderMediaAnalyzerDetail(container, id) {
   `;
 
   container.querySelector('#refresh').onclick = () => renderMediaAnalyzerDetail(container, id);
+  const geoFilter = container.querySelector('#geo-scope-filter');
+  if (geoFilter) {
+    geoFilter.onchange = () => {
+      const selected = geoFilter.value;
+      container.querySelectorAll('#geo-source-list [data-geo-scope]').forEach((item) => {
+        item.hidden = Boolean(selected && item.dataset.geoScope !== selected);
+      });
+    };
+  }
   const dl = container.querySelector('#download-json');
   if (dl && result) {
     dl.onclick = () => {
@@ -749,10 +800,20 @@ export async function renderMediaAnalyzerDetail(container, id) {
   const csvBtn = container.querySelector('#download-csv-client');
   if (csvBtn && docs) {
     csvBtn.onclick = () => {
-      const header = 'title,publisher,source_type,url,published_at\n';
+      const header =
+        'title,publisher,source_type,url,published_at,geographic_scope,source_country,foreign_countries\n';
       const rows = (docs || [])
         .map((d) =>
-          [d.title, d.publisher, d.source_type, d.url, d.published_at]
+          [
+            d.title,
+            d.publisher,
+            d.source_type,
+            d.url,
+            d.published_at,
+            d.metadata?.geographic_scope || 'undetermined',
+            d.metadata?.source_country || '',
+            (d.metadata?.foreign_countries || []).join('; '),
+          ]
             .map((x) => `"${String(x ?? '').replace(/"/g, '""')}"`)
             .join(',')
         )
