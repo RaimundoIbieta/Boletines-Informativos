@@ -154,100 +154,272 @@ export async function renderMediaAnalyzerNew(container) {
   }
   const period = defaultPeriod();
   container.innerHTML = `
-    <h1 class="page-title">Nuevo análisis de medios</h1>
-    <p class="page-sub">Define el tema, territorio y periodo. Puedes aportar enlaces de X/Instagram/Facebook/TikTok para complementar la cobertura abierta.</p>
-    <div class="card">
-      <label>Tema</label>
-      <input id="topic" placeholder="Ej. quién será el próximo presidente de Chile" />
-      <label>Actores / objetivos de sentimiento (uno por línea)</label>
-      <textarea id="actors" placeholder="José Antonio Kast&#10;candidato A&#10;candidato B"></textarea>
-      <label>Comparar con (uno por línea)</label>
-      <textarea id="rivals" placeholder="Lionel Messi&#10;Neymar"></textarea>
-      <p class="muted">Mide quién sale favorecido cuando la gente compara al actor con estos
-      nombres («es mejor que», «prefiero a», «X &gt; Y») y cuenta las preferencias.</p>
-      <div class="grid grid-3">
-        <div>
-          <label>Nivel territorial</label>
-          <select id="territory_level">
-            <option value="national">Nacional</option>
-            <option value="regional">Regional</option>
-            <option value="communal">Comunal</option>
-          </select>
+    <div class="composer">
+      <header class="composer-head">
+        <span class="chip">Analizador de medios</span>
+        <h1 class="page-title">Nuevo análisis</h1>
+        <p class="page-sub">Una radiografía de lo que dicen los medios y las redes sobre el tema
+        que definas, en el territorio y periodo que elijas.</p>
+      </header>
+
+      <div class="composer-body">
+        <div class="composer-main">
+          <section class="step">
+            <div class="step-head">
+              <span class="step-num">1</span>
+              <div>
+                <h2 class="step-title">Qué quieres analizar</h2>
+                <p class="step-sub">El tema guía la búsqueda; los actores reciben medición de tono.</p>
+              </div>
+            </div>
+            <div class="field">
+              <label for="topic">Tema</label>
+              <input id="topic" class="input-lg" placeholder="Ej. quién será el próximo presidente de Chile" />
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="actors">Actores a medir</label>
+                <textarea id="actors" rows="3" placeholder="José Antonio Kast&#10;candidato A&#10;candidato B"></textarea>
+                <p class="hint">Uno por línea. Se mide el tono dirigido a cada uno.</p>
+              </div>
+              <div class="field">
+                <label for="rivals">Comparar con</label>
+                <textarea id="rivals" rows="3" placeholder="Lionel Messi&#10;Neymar"></textarea>
+                <p class="hint">Uno por línea. Mide quién gana cuando la gente compara
+                («es mejor que», «prefiero a»).</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="step">
+            <div class="step-head">
+              <span class="step-num">2</span>
+              <div>
+                <h2 class="step-title">Dónde y cuándo</h2>
+                <p class="step-sub">Las menciones desde el extranjero se clasifican, no se descartan.</p>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="territory_level">Nivel territorial</label>
+                <select id="territory_level">
+                  <option value="national">Nacional</option>
+                  <option value="regional">Regional</option>
+                  <option value="communal">Comunal</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="territory_label">Etiqueta territorial</label>
+                <input id="territory_label" value="Chile" />
+              </div>
+            </div>
+            <div class="field-row" id="geo-row" style="display:none">
+              <div class="field" id="region-wrap" style="display:none">
+                <label for="region_code">Región</label>
+                <select id="region_code">
+                  <option value="">—</option>
+                  ${REGIONS.map(([c, n]) => `<option value="${c}">${escapeHtml(n)}</option>`).join('')}
+                </select>
+              </div>
+              <div class="field" id="commune-wrap" style="display:none">
+                <label for="commune_code">Comuna (código o nombre)</label>
+                <input id="commune_code" placeholder="Ej. 13101 o Santiago" />
+              </div>
+            </div>
+            <div class="field">
+              <label>Periodo</label>
+              <div class="preset-row">
+                ${[
+                  [7, '7 días'],
+                  [30, '30 días'],
+                  [90, '90 días'],
+                  [365, '1 año'],
+                ]
+                  .map(
+                    ([days, text]) =>
+                      `<button type="button" class="preset" data-days="${days}">${text}</button>`
+                  )
+                  .join('')}
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="period_start">Desde</label>
+                <input id="period_start" type="date" value="${period.start}" />
+              </div>
+              <div class="field">
+                <label for="period_end">Hasta</label>
+                <input id="period_end" type="date" value="${period.end}" />
+              </div>
+            </div>
+            <p class="hint">Máximo 2 años. Las redes gratuitas tienen cobertura histórica parcial.</p>
+          </section>
+
+          <section class="step">
+            <div class="step-head">
+              <span class="step-num">3</span>
+              <div>
+                <h2 class="step-title">Fuentes</h2>
+                <p class="step-sub">Toca para activar o desactivar cada una.</p>
+              </div>
+              <button type="button" class="link-btn" id="toggle-sources">Quitar todas</button>
+            </div>
+            <div class="source-grid">
+              ${SOURCES.map(
+                ([value, label, restricted]) =>
+                  `<label class="source-chip">
+                    <input type="checkbox" class="src" value="${value}" checked />
+                    <span>${escapeHtml(label)}${restricted ? '<span class="source-mark">*</span>' : ''}</span>
+                  </label>`
+              ).join('')}
+            </div>
+            <p class="hint">* X, Instagram, Facebook y TikTok no tienen API abierta ni buscador que
+            permita rastrearlas. Se cubren con las publicaciones que los medios citan e incrustan, y
+            con los enlaces o archivos que aportes. No es una muestra completa de esas redes.</p>
+          </section>
+
+          <section class="step">
+            <div class="step-head">
+              <span class="step-num">4</span>
+              <div>
+                <h2 class="step-title">Ajustes opcionales</h2>
+                <p class="step-sub">Solo si necesitas acotar la búsqueda o sumar material propio.</p>
+              </div>
+            </div>
+            <details class="form-details">
+              <summary>Afinar con términos</summary>
+              <div class="field-row">
+                <div class="field">
+                  <label for="include">Incluir términos</label>
+                  <textarea id="include" rows="3" placeholder="elección&#10;encuesta"></textarea>
+                </div>
+                <div class="field">
+                  <label for="exclude">Excluir términos</label>
+                  <textarea id="exclude" rows="3"></textarea>
+                </div>
+              </div>
+              <p class="hint">Uno por línea.</p>
+            </details>
+            <details class="form-details">
+              <summary>Aportar material propio</summary>
+              <div class="field">
+                <label for="x_accounts">Cuentas públicas de X a leer</label>
+                <textarea id="x_accounts" rows="3" placeholder="@PresidenteKast&#10;@Cristiano&#10;https://x.com/usuario"></textarea>
+                <p class="hint">Una por línea. Lee sus publicaciones públicas sin seguirlas ni
+                iniciar sesión. X no permite buscar por tema sin sesión, así que para saber quién
+                habla de alguien hay que indicar las cuentas o aportar enlaces.</p>
+              </div>
+              <div class="field">
+                <label for="urls">URLs de publicaciones o notas</label>
+                <textarea id="urls" rows="3" placeholder="https://x.com/usuario/status/123&#10;https://www.instagram.com/p/..."></textarea>
+              </div>
+              <div class="field">
+                <label for="files">Archivos (txt, md, csv, json, html, pdf)</label>
+                <input id="files" type="file" multiple accept=".txt,.md,.csv,.json,.html,.htm,.pdf,text/plain,application/pdf" />
+              </div>
+            </details>
+          </section>
         </div>
-        <div id="region-wrap" style="display:none">
-          <label>Región</label>
-          <select id="region_code">
-            <option value="">—</option>
-            ${REGIONS.map(([c, n]) => `<option value="${c}">${escapeHtml(n)}</option>`).join('')}
-          </select>
-        </div>
-        <div id="commune-wrap" style="display:none">
-          <label>Comuna (código o nombre)</label>
-          <input id="commune_code" placeholder="Ej. 13101 o Santiago" />
-        </div>
+
+        <aside class="composer-side">
+          <div class="summary">
+            <h2 class="summary-title">Resumen</h2>
+            <dl class="summary-list">
+              <div><dt>Tema</dt><dd id="sum-topic" class="summary-empty">Sin definir</dd></div>
+              <div><dt>Territorio</dt><dd id="sum-territory">Chile</dd></div>
+              <div><dt>Periodo</dt><dd id="sum-period">—</dd></div>
+              <div><dt>Actores</dt><dd id="sum-actors" class="summary-empty">Ninguno</dd></div>
+              <div><dt>Fuentes</dt><dd id="sum-sources">—</dd></div>
+            </dl>
+            <button type="button" class="btn btn-block" id="submit">Generar radiografía</button>
+            <a class="btn btn-secondary btn-block" href="#/analizador">Cancelar</a>
+            <p class="error" id="err"></p>
+            <p class="muted" id="ok"></p>
+            <p class="hint">El procesamiento corre en segundo plano y suele tardar unos minutos.</p>
+          </div>
+        </aside>
       </div>
-      <label>Etiqueta territorial</label>
-      <input id="territory_label" value="Chile" />
-      <div class="grid grid-2">
-        <div>
-          <label>Desde</label>
-          <input id="period_start" type="date" value="${period.start}" />
-        </div>
-        <div>
-          <label>Hasta</label>
-          <input id="period_end" type="date" value="${period.end}" />
-        </div>
-      </div>
-      <p class="muted">Por defecto 30 días. Como admin puedes ampliar hasta 2 años (las redes gratuitas tendrán cobertura histórica parcial).</p>
-      <label>Incluir términos (opcional)</label>
-      <textarea id="include" placeholder="elección&#10;encuesta"></textarea>
-      <label>Excluir términos (opcional)</label>
-      <textarea id="exclude"></textarea>
-      <label>Fuentes</label>
-      <div class="grid grid-3">
-        ${SOURCES.map(
-          ([value, label, restricted]) =>
-            `<label style="text-transform:none;letter-spacing:0;font-size:.95rem;display:flex;gap:8px;align-items:center">
-              <input type="checkbox" class="src" value="${value}" checked /> ${escapeHtml(label)}${
-                restricted ? ' <span class="muted">*</span>' : ''
-              }
-            </label>`
-        ).join('')}
-      </div>
-      <p class="muted">* X, Instagram, Facebook y TikTok no tienen API abierta ni buscador que
-      permita rastrearlas. Se cubren con las publicaciones que los medios citan e incrustan, y con
-      los enlaces o archivos que aportes abajo. No es una muestra completa de esas redes.</p>
-      <label>Cuentas públicas de X a leer (una por línea)</label>
-      <textarea id="x_accounts" placeholder="@PresidenteKast&#10;@Cristiano&#10;https://x.com/usuario"></textarea>
-      <p class="muted">Lee las publicaciones públicas de esas cuentas sin necesidad de seguirlas ni
-      iniciar sesión. X no permite buscar por tema sin sesión, así que para saber quién habla de
-      alguien hay que indicar las cuentas o aportar enlaces.</p>
-      <label>URLs de publicaciones o notas (una por línea)</label>
-      <textarea id="urls" placeholder="https://x.com/usuario/status/123&#10;https://www.instagram.com/p/..."></textarea>
-      <label>Archivos (txt, md, csv, json, html, pdf)</label>
-      <input id="files" type="file" multiple accept=".txt,.md,.csv,.json,.html,.htm,.pdf,text/plain,application/pdf" />
-      <div class="btn-row">
-        <button type="button" class="btn" id="submit">Generar radiografía</button>
-        <a class="btn btn-secondary" href="#/analizador">Cancelar</a>
-      </div>
-      <p class="error" id="err"></p>
-      <p class="muted" id="ok"></p>
     </div>
   `;
 
   const levelEl = container.querySelector('#territory_level');
+  const startEl = container.querySelector('#period_start');
+  const endEl = container.querySelector('#period_end');
+
+  const setSummary = (id, text, empty) => {
+    const el = container.querySelector(id);
+    el.textContent = text;
+    el.classList.toggle('summary-empty', Boolean(empty));
+  };
+
+  const syncSummary = () => {
+    const topic = container.querySelector('#topic').value.trim();
+    setSummary('#sum-topic', topic || 'Sin definir', !topic);
+    setSummary('#sum-territory', container.querySelector('#territory_label').value.trim() || 'Chile');
+
+    const days =
+      startEl.value && endEl.value
+        ? Math.round((new Date(endEl.value) - new Date(startEl.value)) / 86400000) + 1
+        : 0;
+    setSummary('#sum-period', days > 0 ? `${days} días` : '—', days <= 0);
+
+    const actors = container
+      .querySelector('#actors')
+      .value.split('\n')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    setSummary('#sum-actors', actors.length ? actors.join(', ') : 'Ninguno', !actors.length);
+
+    const checked = container.querySelectorAll('.src:checked').length;
+    setSummary(
+      '#sum-sources',
+      checked ? `${checked} de ${SOURCES.length}` : 'Ninguna',
+      !checked
+    );
+    container.querySelector('#toggle-sources').textContent =
+      checked === SOURCES.length ? 'Quitar todas' : 'Activar todas';
+  };
+
   const syncTerritory = () => {
     const level = levelEl.value;
-    container.querySelector('#region-wrap').style.display =
-      level === 'regional' || level === 'communal' ? '' : 'none';
+    const needsRegion = level === 'regional' || level === 'communal';
+    container.querySelector('#geo-row').style.display = needsRegion ? '' : 'none';
+    container.querySelector('#region-wrap').style.display = needsRegion ? '' : 'none';
     container.querySelector('#commune-wrap').style.display = level === 'communal' ? '' : 'none';
     if (level === 'national') container.querySelector('#territory_label').value = 'Chile';
+    syncSummary();
   };
   levelEl.onchange = syncTerritory;
   container.querySelector('#region_code').onchange = () => {
     const opt = container.querySelector('#region_code').selectedOptions[0];
     if (opt?.value) container.querySelector('#territory_label').value = opt.textContent;
+    syncSummary();
   };
+
+  container.querySelectorAll('.preset').forEach((btn) => {
+    btn.onclick = () => {
+      const days = Number(btn.dataset.days);
+      const end = new Date();
+      const start = new Date(end);
+      start.setDate(start.getDate() - (days - 1));
+      startEl.value = isoDate(start);
+      endEl.value = isoDate(end);
+      syncSummary();
+    };
+  });
+
+  container.querySelector('#toggle-sources').onclick = () => {
+    const boxes = [...container.querySelectorAll('.src')];
+    const activate = boxes.some((b) => !b.checked);
+    boxes.forEach((b) => {
+      b.checked = activate;
+    });
+    syncSummary();
+  };
+
+  container.addEventListener('input', syncSummary);
+  container.addEventListener('change', syncSummary);
+  syncSummary();
 
   container.querySelector('#submit').onclick = async () => {
     const err = container.querySelector('#err');
