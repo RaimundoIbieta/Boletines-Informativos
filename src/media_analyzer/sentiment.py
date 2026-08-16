@@ -105,9 +105,8 @@ def analyze_with_llm(
             f"El actor con más menciones es {top.name} ({top.mentions}), "
             f"con tono promedio {top.average_score:+.2f}."
         )
-    if trends:
-        peak = max(trends, key=lambda x: x.get("count", 0))
-        findings.append(f"El pico de volumen observado fue el {peak.get('date')} ({peak.get('count')} piezas).")
+    # El pico y la tendencia los reporta el módulo de proyección, que agrupa por
+    # día, semana o mes según el periodo; duplicarlo aquí daba cifras discordantes.
     findings.append(
         f"Se analizaron {len(documents)} documentos sobre «{request.topic}» "
         f"en {request.territory_label}."

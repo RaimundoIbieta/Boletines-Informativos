@@ -199,10 +199,11 @@ def opinion_queries(request: AnalysisRequest) -> list[str]:
         raw_rivals = raw_rivals.replace(",", "\n").split("\n")
     rivals = [r.strip() for r in raw_rivals if isinstance(r, str) and r.strip()]
 
-    queries = [f"{topic} opinión", f"{topic} mejor"]
+    exact = f'"{topic}"' if " " in topic else topic
+    queries = [f"{exact} opinión", f"{exact} críticas"]
     for rival in rivals[:2]:
-        queries.append(f"{topic} vs {rival}")
-        queries.append(f"{topic} better than {rival}")
+        queries.append(f"{exact} vs {rival}")
+        queries.append(f"{exact} better than {rival}")
     return queries
 
 
@@ -212,7 +213,11 @@ def collect_reddit(
     """RSS primero: Reddit bloquea search.json y aplica rate limit agresivo."""
     import time
 
-    queries = [f"{request.topic} {request.territory_label}".strip(), *opinion_queries(request)]
+    # Las comillas fuerzan la frase exacta: sin ellas Reddit trae cualquier post
+    # del subreddit que comparta una sola palabra con la consulta.
+    topic = (request.topic or "").strip()
+    exact = f'"{topic}"' if " " in topic else topic
+    queries = [f"{exact} {request.territory_label}".strip(), *opinion_queries(request)]
     docs: list[SourceDocument] = []
     seen: set[str] = set()
     last_error: Exception | None = None
@@ -569,11 +574,14 @@ API_UA = "BoletinesInformativos/1.0 (+https://github.com/RaimundoIbieta/Boletine
 
 def collect_bluesky(request: AnalysisRequest, *, limit: int = 25) -> list[SourceDocument]:
     """Busca en Bluesky por tema y por actor. Propaga el error si la API rechaza."""
-    queries = [
-        request.topic,
-        *[a for a in request.actors[:2] if a.strip()],
-        *opinion_queries(request),
-    ]
+    territory = (request.territory_label or "").strip()
+    queries = [request.topic]
+    # Sin el territorio, un tema como «reforma de pensiones» trae sobre todo
+    # conversación de otros países.
+    if territory and territory.lower() not in {"internacional", "global", "mundial"}:
+        queries.append(f"{request.topic} {territory}")
+    queries.extend(a for a in request.actors[:2] if a.strip())
+    queries.extend(opinion_queries(request))
     posts: list[dict] = []
     last_error: Exception | None = None
     working_host: str | None = None

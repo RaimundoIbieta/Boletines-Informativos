@@ -99,6 +99,52 @@ def write_markdown(report: AnalysisReport, path: Path) -> Path:
             "_Este balance describe la conversación observada en las fuentes accesibles; "
             "no es una encuesta representativa de la población._"
         )
+    trend = report.trend
+    if trend and trend.points:
+        unit = trend.bucket_label
+        lines.extend(["", "## Tendencia y proyección", ""])
+        lines.append(
+            f"Volumen **{trend.direction}** por {unit}: promedio {trend.average:.1f} piezas, "
+            f"pico de {trend.peak_documents} el {trend.peak_period}."
+        )
+        if trend.tone_direction != "desconocida":
+            lines.append(f"Tono hacia el actor principal: **{trend.tone_direction}**.")
+        lines.append("")
+        lines.append(f"| Desde | Piezas | Favorables | Críticas | Balance |")
+        lines.append("| --- | --- | --- | --- | --- |")
+        for point in trend.points[-12:]:
+            lines.append(
+                f"| {point.period_start} | {point.documents} | {point.favorable} | "
+                f"{point.critical} | {point.tone_balance:+.0f} |"
+            )
+        if trend.projectable:
+            lines.append("")
+            lines.append(f"**Proyección** para los próximos {len(trend.projection)} tramos:")
+            lines.append("")
+            lines.append("| Desde | Esperado | Mínimo | Máximo |")
+            lines.append("| --- | --- | --- | --- |")
+            for point in trend.projection:
+                lines.append(
+                    f"| {point.period_start} | {point.expected:.0f} | "
+                    f"{point.low:.0f} | {point.high:.0f} |"
+                )
+        if trend.note:
+            lines.append("")
+            lines.append(f"⚠️ {trend.note}")
+        if trend.scenarios:
+            lines.extend(["", "### Escenarios", ""])
+            for scenario in trend.scenarios:
+                lines.append(
+                    f"- **{scenario.get('nombre')}** "
+                    f"(probabilidad {scenario.get('probabilidad')}): "
+                    f"{scenario.get('descripcion')}"
+                )
+                for signal in scenario.get("senales") or []:
+                    lines.append(f"  - Señal a vigilar: {signal}")
+        lines.append("")
+        lines.append(
+            "_La proyección extrapola la serie observada; un hecho nuevo puede romperla._"
+        )
     lines.extend(["", "## Narrativas", ""])
     for n in report.narratives:
         lines.append(f"### {n.title}")
@@ -252,6 +298,87 @@ def write_html(report: AnalysisReport, path: Path) -> Path:
             + "<p class='muted'>Describe la conversación observada en las fuentes accesibles; "
             "no es una encuesta representativa de la población.</p></div>"
         )
+    trend_html = ""
+    trend = report.trend
+    if trend and trend.points:
+        unit = trend.bucket_label
+        shown = trend.points[-12:]
+        top = max([p.documents for p in shown] + [p.high for p in trend.projection] + [1])
+        bars = []
+        for point in shown:
+            height = max(2, round(100 * point.documents / top))
+            bars.append(
+                f"<div title='{point.period_start}: {point.documents}' "
+                f"style='flex:1;display:flex;align-items:flex-end'>"
+                f"<div style='width:100%;height:{height}px;background:#2563eb'></div></div>"
+            )
+        for point in trend.projection:
+            height = max(2, round(100 * point.expected / top))
+            bars.append(
+                f"<div title='proyección {point.period_start}: {point.expected:.0f}' "
+                f"style='flex:1;display:flex;align-items:flex-end'>"
+                f"<div style='width:100%;height:{height}px;background:#93c5fd;"
+                f"border-top:2px dashed #2563eb'></div></div>"
+            )
+        chart = (
+            "<div style='display:flex;gap:3px;height:110px;align-items:flex-end;"
+            f"margin:12px 0'>{''.join(bars)}</div>"
+            f"<p class='muted'>Azul: observado por {unit}. Celeste punteado: proyectado.</p>"
+        )
+        rows = "".join(
+            f"<tr><td>{p.period_start}</td><td>{p.documents}</td><td>{p.favorable}</td>"
+            f"<td>{p.critical}</td><td>{p.tone_balance:+.0f}</td></tr>"
+            for p in shown
+        )
+        projection_rows = "".join(
+            f"<tr><td>{p.period_start}</td><td>{p.expected:.0f}</td>"
+            f"<td>{p.low:.0f} – {p.high:.0f}</td></tr>"
+            for p in trend.projection
+        )
+        scenarios = "".join(
+            f"<li><strong>{s.get('nombre')}</strong> "
+            f"<span class='muted'>(probabilidad {s.get('probabilidad')})</span><br>"
+            f"{s.get('descripcion')}"
+            + (
+                "<br><small>Señales: " + "; ".join(s.get("senales") or []) + "</small>"
+                if s.get("senales")
+                else ""
+            )
+            + "</li>"
+            for s in trend.scenarios
+        )
+        trend_html = (
+            "<div class='card'><h2>Tendencia y proyección</h2>"
+            f"<p>Volumen <strong>{trend.direction}</strong> por {unit} · "
+            f"promedio {trend.average:.1f} · pico {trend.peak_documents} "
+            f"el {trend.peak_period}"
+            + (
+                f" · tono <strong>{trend.tone_direction}</strong>"
+                if trend.tone_direction != "desconocida"
+                else ""
+            )
+            + "</p>"
+            + chart
+            + "<table style='width:100%;border-collapse:collapse' border='1' cellpadding='6'>"
+            "<thead><tr><th>Desde</th><th>Piezas</th><th>Favorables</th>"
+            "<th>Críticas</th><th>Balance</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table>"
+            + (
+                "<h3>Proyección</h3><table style='width:100%;border-collapse:collapse' "
+                "border='1' cellpadding='6'><thead><tr><th>Desde</th><th>Esperado</th>"
+                f"<th>Rango</th></tr></thead><tbody>{projection_rows}</tbody></table>"
+                if projection_rows
+                else ""
+            )
+            + (
+                f"<p style='color:#b45309'><strong>Aviso:</strong> {trend.note}</p>"
+                if trend.note
+                else ""
+            )
+            + (f"<h3>Escenarios</h3><ul>{scenarios}</ul>" if scenarios else "")
+            + "<p class='muted'>La proyección extrapola la serie observada; "
+            "un hecho nuevo puede romperla.</p></div>"
+        )
     html = f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8"><title>Radiografía · {report.topic}</title>
 <style>
@@ -264,6 +391,7 @@ h1,h2{{font-family:system-ui,sans-serif}} .muted{{color:#64748b}} .card{{backgro
 <div class="card"><h2>Hallazgos</h2><ul>{findings_html}</ul></div>
 <div class="card"><h2>Actores</h2><ul>{actors_html}</ul></div>
 {opinion_html}
+{trend_html}
 <div class="card"><h2>Cobertura por plataforma</h2>{platforms_html}</div>
 <div class="card"><h2>Advertencias</h2><ul>{warnings_html}</ul></div>
 <div class="card"><h2>Fuentes</h2><ul>{sources_html}</ul></div>
@@ -378,6 +506,32 @@ def write_pdf(report: AnalysisReport, path: Path) -> Path:
         write_block(
             "Describe la conversacion observada en las fuentes accesibles; "
             "no es una encuesta representativa."
+        )
+    trend = report.trend
+    if trend and trend.points:
+        pdf.ln(1)
+        write_block("Tendencia y proyeccion", bold=True, size=12, h=8)
+        write_block(
+            f"- Volumen {trend.direction} por {trend.bucket_label}: promedio "
+            f"{trend.average:.1f}, pico {trend.peak_documents} el {trend.peak_period}."
+        )
+        if trend.tone_direction != "desconocida":
+            write_block(f"- Tono hacia el actor principal: {trend.tone_direction}.")
+        for point in trend.projection:
+            write_block(
+                f"- Proyeccion {point.period_start}: {point.expected:.0f} piezas "
+                f"(rango {point.low:.0f} a {point.high:.0f})."
+            )
+        if trend.note:
+            write_block(f"- AVISO: {trend.note}")
+        for scenario in trend.scenarios:
+            write_block(
+                f"- Escenario {scenario.get('nombre')} "
+                f"(probabilidad {scenario.get('probabilidad')}): "
+                f"{scenario.get('descripcion')}"
+            )
+        write_block(
+            "La proyeccion extrapola la serie observada; un hecho nuevo puede romperla."
         )
     pdf.ln(1)
     write_block("Cobertura por plataforma", bold=True, size=12, h=8)
