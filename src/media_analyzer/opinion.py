@@ -193,7 +193,7 @@ def classify_with_gemini(
     actor: str,
     rivals: list[str],
     api_key: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-3.6-flash",
     *,
     limit: int = 60,
 ) -> dict[str, dict]:
@@ -264,7 +264,7 @@ def build_opinion_analysis(
     aliases: list[str] | None = None,
     max_quotes: int = 6,
     gemini_api_key: str = "",
-    gemini_model: str = "gemini-2.0-flash",
+    gemini_model: str = "gemini-3.6-flash",
 ) -> OpinionAnalysis:
     """Resume qué se dice del actor y cómo se compara con sus rivales."""
     aliases = aliases or []

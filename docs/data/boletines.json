@@ -1,5 +1,20 @@
 [
   {
+    "id": "pae_educaci_n_chile_6ccac16a_2026-08-18_2026-08-24",
+    "theme_id": "pae_educaci_n_chile_6ccac16a",
+    "theme_title": "Inteligencia de ecosistema PAE",
+    "theme_label": "PAE / Educación Chile",
+    "author": "Raimundo Ibieta",
+    "periodo_inicio": "2026-08-18",
+    "periodo_fin": "2026-08-24",
+    "generado_el": "2026-08-24",
+    "noticias": 5,
+    "pdf_local": "boletines/pae_educaci_n_chile_6ccac16a_2026-08-18_2026-08-24.pdf",
+    "drive_view_link": "",
+    "drive_download_link": "",
+    "published_at": "2026-08-26T19:34:57.609192+00:00"
+  },
+  {
     "id": "chile_y_mundo_15_fin_3b0040a6_2026-08-01_2026-08-15",
     "theme_id": "chile_y_mundo_15_fin_3b0040a6",
     "theme_title": "Panorama Quincenal de Chile y el Mundo",
