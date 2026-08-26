@@ -20,13 +20,14 @@ def send_boletin_email(
     html_body: str,
     text_body: str,
     pdf_path: Path,
+    subject_prefix: str = "",
 ) -> None:
     if not recipients:
         raise ValueError("No hay destinatarios")
 
     inicio = boletin.periodo_inicio.strftime("%d/%m/%Y")
     fin = boletin.periodo_fin.strftime("%d/%m/%Y")
-    subject = f"{boletin.theme_label} — {inicio} al {fin}"
+    subject = f"{subject_prefix}{boletin.theme_label} — {inicio} al {fin}"
 
     msg = EmailMessage()
     msg["Subject"] = subject

@@ -38,6 +38,24 @@ class ThemeConfig(BaseModel):
     analysis_axes: list[str] = Field(default_factory=list)
     sections: list[str] = Field(default_factory=list)
     cadence: str = "weekly"
+    # standard = noticia con comentario/riesgos/oportunidades
+    # panorama_sectional = resumen corto + síntesis por sección + conclusión
+    output_format: str = "standard"
+
+    @property
+    def is_panorama(self) -> bool:
+        fmt = (self.output_format or "standard").strip().lower()
+        if fmt == "panorama_sectional":
+            return True
+        # Transición: quincenal con secciones fijas = panorama, aunque
+        # aún no se haya ejecutado la migración output_format.
+        if (
+            fmt == "standard"
+            and self.sections
+            and (self.cadence or "").strip().lower() == "semimonthly"
+        ):
+            return True
+        return False
 
     @model_validator(mode="before")
     @classmethod
@@ -147,7 +165,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-20250514"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-3.6-flash"
 
     # Compatibilidad: si no hay config.yaml emails, usar estos
     email_to: str = ""
@@ -262,18 +280,24 @@ def compute_period_bounds(
 
     last_n_days incluye el día del envío: un boletín del viernes 18:30 debe
     considerar lo que pasó ese mismo viernes.
+
+    calendar_semimonthly:
+    - día 15 (o prueba 1–15): 1 → 15 del mes actual
+    - último día del mes (o prueba >15): 1 → último día (o today si es preview)
     """
+    import calendar
+
     today = reference or date.today()
     mode = (period_mode or "last_n_days").strip().lower()
     if mode == "calendar_semimonthly":
-        if today.day == 1:
-            previous_month_end = today - timedelta(days=1)
-            start = previous_month_end.replace(day=1)
-            return start, previous_month_end
-        # El envío del 15 cubre la primera quincena inclusive. Para una prueba
-        # antes del 15, no incluye días futuros.
         start = today.replace(day=1)
-        end = today.replace(day=15) if today.day >= 15 else today
+        last = calendar.monthrange(today.year, today.month)[1]
+        if today.day <= 15:
+            # Primera quincena; en pruebas antes del 15 no inventar días futuros.
+            end = today.replace(day=15) if today.day == 15 else today
+            return start, end
+        # Cierre mensual: mes completo hasta el último día (o today en preview).
+        end = today.replace(day=last) if today.day == last else today
         return start, end
     if mode == "previous_week":
         this_monday = today - timedelta(days=today.weekday())

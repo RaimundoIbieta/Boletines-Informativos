@@ -200,7 +200,7 @@ def project_scenarios_with_gemini(
     trend: TrendAnalysis,
     findings: list[str],
     api_key: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-3.6-flash",
 ) -> list[dict]:
     """Escenarios a futuro redactados por el modelo a partir de la evidencia.
 

@@ -8,7 +8,7 @@ from datetime import date, datetime
 
 from boletin.config import Settings, ThemeConfig
 from boletin.collector import is_blocked_title, is_google_news_url, unwrap_google_news_url
-from boletin.models import BoletinSemanal, NoticiaAnalizada, RawArticle
+from boletin.models import BoletinSemanal, NoticiaAnalizada, RawArticle, SeccionSintesis
 
 logger = logging.getLogger(__name__)
 
@@ -117,10 +117,44 @@ Secciones editoriales fijas (OBLIGATORIAS y en este orden):
 - Clasifica cada noticia en EXACTAMENTE una de estas secciones; usa el nombre exacto.
 - Incluye al menos una noticia relevante por sección cuando existan candidatas.
 - Busca equilibrio: idealmente 2 o 3 noticias por sección, sin rellenar con notas irrelevantes.
-- Desambiguación: POLÍTICA trata actores, partidos, Gobierno y Congreso; NACIONAL trata
-  hechos internos relevantes que no correspondan principalmente a Economía, Social o Política;
-  INTERNACIONAL trata hechos externos con impacto o interés para Chile.
+- Usa las definiciones del enfoque del boletín para interpretar cada sección.
+- Si existe una sección Internacional (o similar): prioriza hechos del mundo (geopolítica,
+  mercados globales, conflictos, decisiones de potencias u organismos internacionales)
+  que puedan afectar a Chile. NO uses esa sección para “Chile en el extranjero”,
+  chilenos en el exterior, turismo chileno afuera ni cobertura de Chile vista desde fuera;
+  esos casos van a Nacional u otra sección interna si aplican.
+- Si existe Política: actores, partidos, Gobierno y Congreso.
+- Si existe Nacional: hechos internos relevantes que no correspondan principalmente a
+  otras secciones internas (clima, emergencias, infraestructura, justicia, etc.).
 """
+    if theme.is_panorama:
+        return f"""Eres un analista ejecutivo. Temática del boletín: {theme.title}.
+
+Audiencia: {theme.audience or "tomadores de decisión"}.
+
+Enfoque:
+{theme.focus.strip()}
+
+Ancla siempre el análisis en:
+{axes}
+{sections_priority}
+
+Formato PANORAMA POR SECCIONES (OBLIGATORIO):
+- Selecciona entre {min_n} y {max_n} noticias REALES de las candidatas.
+- Idealmente 2 o 3 noticias distintas por cada sección con candidatas.
+- Por cada noticia: resumen CORTO (1-3 frases). NO escribas comentario, riesgos ni oportunidades a nivel noticia.
+- Por cada sección con noticias: un análisis de sección (4-6 líneas) que conecte los hechos,
+  explique qué significan en conjunto y señale riesgos u oportunidades a ese nivel.
+- Al final, una CONCLUSIÓN del periodo (6-10 líneas): cómo fueron estos días en el conjunto,
+  no un listado. Si el periodo termina el día 15, habla de la primera quincena; si cubre
+  el mes completo, del mes entero.
+- No inventes noticias, URLs, fechas ni fuentes.
+- El campo "link" DEBE ser la URL exacta de la candidata (sitio del medio). NUNCA uses news.google.com.
+- DIVERSIDAD: cada HECHO aparece UNA sola vez.
+- El campo "fecha" DEBE caer dentro del periodo (YYYY-MM-DD).
+- Responde SOLO con JSON válido.
+"""
+
     return f"""Eres un analista experto. Temática del boletín: {theme.title}.
 
 Audiencia: {theme.audience or "tomadores de decisión"}.
@@ -207,6 +241,58 @@ def _user_prompt(
         if theme.sections
         else ""
     )
+    if theme.is_panorama:
+        schema = {
+            "noticias": [
+                {
+                    "titular": "string",
+                    "fuente": "string",
+                    "fecha": "YYYY-MM-DD",
+                    "link": "url exacta de la candidata",
+                    "resumen": "1-3 frases cortas",
+                    "tema": (
+                        f"una sección exacta: {', '.join(theme.sections)}"
+                        if theme.sections
+                        else "etiqueta corta"
+                    ),
+                    "relevancia": "1-10",
+                }
+            ],
+            "sintesis_secciones": [
+                {
+                    "seccion": (
+                        f"nombre exacto: {', '.join(theme.sections)}"
+                        if theme.sections
+                        else "sección"
+                    ),
+                    "analisis": "4-6 líneas sobre el conjunto de hechos de esa sección",
+                }
+            ],
+            "sintesis": "conclusión global del periodo, 6-10 líneas",
+        }
+        period_hint = (
+            "Escribe la conclusión como lectura de la PRIMERA QUINCENA."
+            if start.day == 1 and end.day == 15 and start.month == end.month
+            else "Escribe la conclusión como lectura del MES COMPLETO."
+            if start.day == 1 and start.month == end.month
+            else "Escribe la conclusión del periodo cubierto."
+        )
+        return f"""Periodo del boletín: {start.isoformat()} a {end.isoformat()} inclusive (SOLO noticias de esas fechas).
+Temática: {theme.title}
+
+Prioriza lo más reciente: los hechos de {end.isoformat()} deben aparecer si son relevantes.{section_rule}
+Selecciona entre {min_n} y {max_n} noticias más relevantes y DIVERSAS (varias por sección).
+Si varios medios repiten el mismo hecho, quédate con una sola.
+Si detectas una nota antigua o recirculada, exclúyela.
+Incluye sintesis_secciones solo para secciones con al menos una noticia.
+{period_hint}
+Devuelve JSON con esta forma exacta:
+{json.dumps(schema, ensure_ascii=False, indent=2)}
+
+Candidatas:
+{json.dumps(_articles_payload(articles), ensure_ascii=False, indent=2)}
+"""
+
     schema = {
         "noticias": [
             {
@@ -313,17 +399,45 @@ def _parse_boletin(
         noticias.sort(key=lambda n: (order.get(_fold(n.tema), len(order)), -n.relevancia))
     else:
         noticias.sort(key=lambda n: n.relevancia, reverse=True)
+
+    sintesis_secciones: list[SeccionSintesis] = []
+    if theme.is_panorama:
+        present = {_fold(n.tema) for n in noticias}
+        for item in data.get("sintesis_secciones") or []:
+            if not isinstance(item, dict):
+                continue
+            raw_sec = str(item.get("seccion") or "").strip()
+            analisis = str(item.get("analisis") or "").strip()
+            if not raw_sec or not analisis:
+                continue
+            section = next(
+                (s for s in theme.sections if _fold(s).strip() == _fold(raw_sec).strip()),
+                None,
+            )
+            if not section:
+                continue
+            if _fold(section) not in present:
+                continue
+            sintesis_secciones.append(SeccionSintesis(seccion=section, analisis=analisis))
+        # Orden canónico de secciones
+        order = {_fold(s): i for i, s in enumerate(theme.sections)}
+        sintesis_secciones.sort(key=lambda s: order.get(_fold(s.seccion), 99))
+
     return BoletinSemanal(
         periodo_inicio=start,
         periodo_fin=end,
         generado_el=generated,
         noticias=noticias,
         sintesis=data.get("sintesis", "").strip(),
+        sintesis_secciones=sintesis_secciones,
         theme_id=theme.id,
         theme_title=theme.title,
         theme_label=theme.short_label,
         sections=theme.sections,
         cadence=theme.cadence,
+        output_format=(
+            "panorama_sectional" if theme.is_panorama else (theme.output_format or "standard")
+        ),
     )
 
 
@@ -373,11 +487,11 @@ def _call_gemini(settings: Settings, system: str, user: str) -> str:
     models = []
     for candidate in (
         settings.gemini_model,
+        "gemini-3.6-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-latest",
         "gemini-2.0-flash",
         "gemini-2.0-flash-lite",
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-8b",
-        "gemini-flash-latest",
     ):
         if candidate and candidate not in models:
             models.append(candidate)

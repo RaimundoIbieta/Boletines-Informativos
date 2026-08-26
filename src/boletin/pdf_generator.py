@@ -342,6 +342,56 @@ def _draw_sintesis(pdf: BoletinPDF, texto: str, *, title: str) -> None:
     pdf.set_y(y + box_h + 4)
 
 
+def _draw_noticia_panorama(pdf: BoletinPDF, idx: int, n: NoticiaAnalizada) -> None:
+    if pdf.get_y() > pdf.h - pdf.b_margin - 55:
+        pdf.add_page()
+        _reset(pdf)
+
+    _reset(pdf)
+    content_x = pdf.l_margin + 3
+    titular = _clean_title(n.titular, n.fuente)
+    pdf.set_x(content_x)
+    pdf.set_font("DejaVu", "B", 12)
+    pdf.set_text_color(*INK)
+    pdf.multi_cell(pdf.w - pdf.r_margin - content_x, 5.8, f"{idx}. {titular}")
+    pdf.ln(0.8)
+
+    pdf.set_x(content_x)
+    pdf.set_font("DejaVu", "", 8.5)
+    pdf.set_text_color(*MUTED)
+    pdf.cell(0, 4.5, f"{n.fuente}  ·  {n.fecha}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+    pdf.set_x(content_x)
+    pdf.set_font("DejaVu", "B", 8.5)
+    pdf.set_text_color(*TEAL)
+    label = _short_link_label(n.link)
+    href = safe_http_url(n.link)
+    pdf.cell(pdf.get_string_width(label) + 1, 5, label, link=href)
+    pdf.ln(4)
+
+    old_l = pdf.l_margin
+    pdf.set_left_margin(content_x)
+    _reset(pdf)
+    _labeled_block(pdf, "Resumen", n.resumen)
+    pdf.set_left_margin(old_l)
+    _reset(pdf)
+
+    pdf.set_draw_color(*LINE)
+    pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
+    pdf.ln(5)
+    _reset(pdf)
+
+
+def _draw_section_analysis(pdf: BoletinPDF, section: str, analisis: str) -> None:
+    if not (analisis or "").strip():
+        return
+    _draw_sintesis(
+        pdf,
+        analisis.strip(),
+        title=f"Análisis de la sección {section}",
+    )
+
+
 def generate_pdf(
     boletin: BoletinSemanal,
     path: Path,
@@ -361,18 +411,37 @@ def generate_pdf(
 
     _draw_cover(pdf, boletin)
 
+    panorama = boletin.is_panorama
+    analyses = {
+        (s.seccion or "").strip().lower(): s.analisis.strip()
+        for s in boletin.sintesis_secciones
+        if s.analisis.strip()
+    }
+
     current_section = ""
     for i, n in enumerate(boletin.noticias, start=1):
         section = _tema_label(n.tema)
         if boletin.sections and section != current_section:
+            if panorama and current_section:
+                _draw_section_analysis(
+                    pdf, current_section, analyses.get(current_section.lower(), "")
+                )
             _draw_section_header(pdf, section)
             current_section = section
-        _draw_noticia(pdf, i, n)
+        if panorama:
+            _draw_noticia_panorama(pdf, i, n)
+        else:
+            _draw_noticia(pdf, i, n)
+
+    if panorama and current_section:
+        _draw_section_analysis(
+            pdf, current_section, analyses.get(current_section.lower(), "")
+        )
 
     _draw_sintesis(
         pdf,
         boletin.sintesis.strip(),
-        title=f"Síntesis del periodo · {boletin.theme_label or boletin.theme_title}",
+        title=boletin.conclusion_title,
     )
 
     pdf.output(str(path))

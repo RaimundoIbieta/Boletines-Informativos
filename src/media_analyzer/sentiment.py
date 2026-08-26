@@ -61,7 +61,7 @@ def analyze_with_llm(
     documents: list[SourceDocument],
     *,
     gemini_api_key: str = "",
-    gemini_model: str = "gemini-2.0-flash",
+    gemini_model: str = "gemini-3.6-flash",
 ) -> AnalysisReport:
     actors = list(dict.fromkeys([*(request.actors or []), * _guess_actors(documents, request.topic)]))
     if not actors:

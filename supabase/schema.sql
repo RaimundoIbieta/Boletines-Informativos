@@ -63,6 +63,8 @@ create table if not exists public.bulletins (
     check (period_mode in ('previous_week', 'last_n_days', 'calendar_semimonthly')),
   period_days int not null default 7
     check (period_days >= 1 and period_days <= 31),
+  output_format text not null default 'standard'
+    check (output_format in ('standard', 'panorama_sectional')),
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

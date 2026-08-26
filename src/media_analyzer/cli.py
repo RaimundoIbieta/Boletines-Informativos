@@ -59,7 +59,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         file_paths=list(args.file or []),
     )
     gemini_key = ""
-    gemini_model = "gemini-2.0-flash"
+    gemini_model = "gemini-3.6-flash"
     try:
         from boletin.config import Settings
 
@@ -143,7 +143,7 @@ def _cmd_process_queue(args: argparse.Namespace) -> int:
         report = run_analysis(
             req,
             gemini_api_key=secrets.gemini_api_key,
-            gemini_model=secrets.gemini_model or "gemini-2.0-flash",
+            gemini_model=secrets.gemini_model or "gemini-3.6-flash",
             output_dir=out,
             progress_cb=progress,
         )

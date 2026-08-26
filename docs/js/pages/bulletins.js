@@ -41,14 +41,15 @@ function isoDate(d) {
 function computePeriodBounds(mode, days, reference = new Date()) {
   const today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate());
   if (mode === 'calendar_semimonthly') {
-    if (today.getDate() === 1) {
-      const end = new Date(today);
-      end.setDate(0);
-      const start = new Date(end.getFullYear(), end.getMonth(), 1);
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    if (today.getDate() <= 15) {
+      const endDay = today.getDate() === 15 ? 15 : today.getDate();
+      const end = new Date(today.getFullYear(), today.getMonth(), endDay);
       return { start: isoDate(start), end: isoDate(end) };
     }
-    const start = new Date(today.getFullYear(), today.getMonth(), 1);
-    const end = new Date(today.getFullYear(), today.getMonth(), Math.min(today.getDate(), 15));
+    const endDay = today.getDate() === lastDay ? lastDay : today.getDate();
+    const end = new Date(today.getFullYear(), today.getMonth(), endDay);
     return { start: isoDate(start), end: isoDate(end) };
   }
   if (mode === 'previous_week') {
@@ -118,6 +119,7 @@ function readForm(container, { requireEmails = false } = {}) {
     schedule_minute: Number(container.querySelector('#minute').value),
     period_mode: container.querySelector('#period_mode').value,
     period_days: Number(container.querySelector('#period_days').value) || 7,
+    output_format: container.querySelector('#output_format')?.value || 'standard',
     active: container.querySelector('#active').checked,
   };
   const emails = container
@@ -169,7 +171,7 @@ export async function renderApp(container) {
         <div class="card">
           <span class="chip">${b.short_label}</span>
           <h2 style="margin:8px 0;font-family:Fraunces,Georgia,serif;font-size:1.2rem">${b.title}</h2>
-          <p class="muted">${b.schedule_frequency === 'semimonthly' ? 'Días 1 y 15' : b.schedule_weekday} ${String(b.schedule_hour).padStart(2, '0')}:${String(b.schedule_minute).padStart(2, '0')} ·
+          <p class="muted">${b.schedule_frequency === 'semimonthly' ? 'Días 15 y fin de mes' : b.schedule_weekday} ${String(b.schedule_hour).padStart(2, '0')}:${String(b.schedule_minute).padStart(2, '0')} ·
             ${(b.bulletin_recipients || []).length} correo(s) · ${b.active ? 'activo' : 'pausado'}</p>
           <div class="btn-row">
             <a class="btn btn-secondary" href="#/boletin/${b.id}">Editar</a>
@@ -222,14 +224,19 @@ export async function renderBulletinEditor(container, id) {
       <textarea id="queries" placeholder="cobre Chile OR Codelco | MINERIA">${escapeHtml(queriesToText(b?.queries))}</textarea>
       <label>Ejes de análisis (uno por línea)</label>
       <textarea id="axes">${escapeHtml((b?.analysis_axes || []).join('\n'))}</textarea>
-      <label>Secciones fijas (una por línea; opcional)</label>
+      <label>Secciones del informe (una por línea)</label>
       <textarea id="sections" placeholder="Economía&#10;Social&#10;Política&#10;Nacional&#10;Internacional">${escapeHtml((b?.sections || []).join('\n'))}</textarea>
+      <p class="muted" style="margin:4px 0 10px">
+        En formato <strong>Panorama</strong> estas secciones son libres: puedes usar Deportes, Misceláneo, Cine y teatro, Cultura, etc.
+        Cada línea debe coincidir con el TEMA de las búsquedas (ej. <code>consulta | DEPORTES</code>).
+        Si usas <strong>Internacional</strong>, debe significar hechos del mundo que puedan afectar a Chile, no “Chile en el extranjero”.
+      </p>
       <div class="grid grid-3">
         <div>
           <label>Frecuencia</label>
           <select id="frequency">
             <option value="weekly" ${frequency === 'weekly' ? 'selected' : ''}>Semanal</option>
-            <option value="semimonthly" ${frequency === 'semimonthly' ? 'selected' : ''}>Días 1 y 15 de cada mes</option>
+            <option value="semimonthly" ${frequency === 'semimonthly' ? 'selected' : ''}>Días 15 y último del mes</option>
           </select>
         </div>
         <div id="weekday-wrap" style="${frequency === 'semimonthly' ? 'display:none' : ''}">
@@ -260,7 +267,7 @@ export async function renderBulletinEditor(container, id) {
           <select id="period_mode">
             <option value="last_n_days" ${periodMode === 'last_n_days' ? 'selected' : ''}>Últimos N días (incluye el día de envío)</option>
             <option value="previous_week" ${periodMode === 'previous_week' ? 'selected' : ''}>Semana previa cerrada (lun–dom)</option>
-            <option value="calendar_semimonthly" ${periodMode === 'calendar_semimonthly' ? 'selected' : ''}>Calendario quincenal (1 y 15)</option>
+            <option value="calendar_semimonthly" ${periodMode === 'calendar_semimonthly' ? 'selected' : ''}>Calendario quincenal (15 y fin de mes)</option>
           </select>
         </div>
         <div id="period-days-wrap" style="${periodMode !== 'last_n_days' ? 'display:none' : ''}">
@@ -272,8 +279,14 @@ export async function renderBulletinEditor(container, id) {
       <p class="muted" style="margin:4px 0 10px">
         Con <strong>Últimos N días</strong> el boletín del viernes 18:30 incluye lo que pasó ese mismo viernes.
         La <strong>semana previa cerrada</strong> termina el domingo anterior, así que no cubre el día de envío.
-        El <strong>calendario quincenal</strong> cubre el mes anterior el día 1 y los días 1–15 el día 15.
+        El <strong>calendario quincenal</strong> cubre los días 1–15 el día 15, y el mes completo el último día del mes.
       </p>
+      <label style="margin-top:12px">Formato del informe</label>
+      <select id="output_format">
+        <option value="standard" ${(b?.output_format || 'standard') === 'standard' ? 'selected' : ''}>Estándar (comentario, riesgos y oportunidades por noticia)</option>
+        <option value="panorama_sectional" ${b?.output_format === 'panorama_sectional' ? 'selected' : ''}>Panorama por secciones (resumen corto + síntesis de sección + conclusión)</option>
+      </select>
+      <p class="muted" style="margin:4px 0 10px">El formato panorama usa las secciones que definas arriba (no están un set fijo). El estándar ignora ese layout y mantiene el análisis por noticia.</p>
       <div class="grid grid-3" style="margin-top:8px">
         <div>
           <label>Desde (prueba)</label>
@@ -311,9 +324,9 @@ export async function renderBulletinEditor(container, id) {
       else saved = await updateBulletin(id, payload);
     } catch (e) {
       const msg = e.message || String(e);
-      if (/period_mode|period_days|schedule_frequency|sections|schema cache|column/i.test(msg)) {
+      if (/period_mode|period_days|schedule_frequency|sections|output_format|schema cache|column/i.test(msg)) {
         throw new Error(
-          'Falta actualizar Supabase. Ejecuta supabase/semimonthly_bulletins.sql y vuelve a guardar.'
+          'Falta actualizar Supabase. Ejecuta supabase/panorama_output_format.sql (y semimonthly_bulletins.sql si aplica) y vuelve a guardar.'
         );
       }
       throw e;

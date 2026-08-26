@@ -4,7 +4,7 @@
 
 1. https://supabase.com/dashboard/project/ryznnccmqyvujrlhriml/sql/new  
 2. Ejecuta `schema.sql`  
-3. Si aplica: `update_prices.sql`, `seed_pae.sql`, **`send_requests.sql`** (botón Probar envío), **`period_selection.sql`** (rango de noticias configurable), **`period_include_send_day.sql`** (que el rango llegue hasta el día del envío), **`semimonthly_bulletins.sql`** (agenda 1/15 y secciones) y **`media_analysis.sql`** (Analizador de Medios)
+3. Si aplica: `update_prices.sql`, `seed_pae.sql`, **`send_requests.sql`** (botón Probar envío), **`period_selection.sql`** (rango de noticias configurable), **`period_include_send_day.sql`** (que el rango llegue hasta el día del envío), **`semimonthly_bulletins.sql`** (agenda 15/fin de mes y secciones), **`panorama_output_format.sql`** (formato panorama por secciones) y **`media_analysis.sql`** (Analizador de Medios)
 
 ## 2. Auth
 

@@ -109,7 +109,7 @@ def _opinion_analyses(
     documents: list[SourceDocument],
     *,
     gemini_api_key: str = "",
-    gemini_model: str = "gemini-2.0-flash",
+    gemini_model: str = "gemini-3.6-flash",
 ) -> list[OpinionAnalysis]:
     actors, rivals = _opinion_targets(request)
     analyses: list[OpinionAnalysis] = []
@@ -276,7 +276,7 @@ def run_analysis(
     request: AnalysisRequest,
     *,
     gemini_api_key: str = "",
-    gemini_model: str = "gemini-2.0-flash",
+    gemini_model: str = "gemini-3.6-flash",
     output_dir: Path | None = None,
     progress_cb=None,
 ) -> AnalysisReport:

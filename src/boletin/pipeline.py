@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import calendar
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from boletin.analyzer import analyze_articles
 from boletin.archive import publish_to_pages
@@ -14,6 +16,46 @@ from boletin.models import BoletinSemanal
 from boletin.pdf_generator import generate_pdf
 
 logger = logging.getLogger(__name__)
+
+
+def last_day_of_month(year: int, month: int) -> int:
+    return calendar.monthrange(year, month)[1]
+
+
+def is_semimonthly_send_day(day: date) -> bool:
+    """Día 15 o último día calendario del mes (zona del boletín)."""
+    return day.day == 15 or day.day == last_day_of_month(day.year, day.month)
+
+
+def collection_cutoff(
+    ctx: RuntimeContext,
+    *,
+    reference_date: date | None = None,
+    now: datetime | None = None,
+) -> datetime | None:
+    """Corte horario del día de cierre para no incluir noticias posteriores.
+
+    En envíos programados del día 15 / fin de mes, el límite es la hora del
+    boletín (p. ej. 18:30 Chile). Si se regenera ese mismo día más tarde, se
+    usa ese tope fijo para no mezclar hechos de la noche.
+    """
+    day = reference_date or ctx.today_local()
+    frequency = (ctx.app.schedule.frequency or "weekly").strip().lower()
+    if frequency != "semimonthly" or not is_semimonthly_send_day(day):
+        return None
+    tz = ctx.timezone if isinstance(ctx.timezone, ZoneInfo) else ZoneInfo(str(ctx.timezone))
+    cutoff = datetime.combine(
+        day,
+        time(ctx.schedule_hour, ctx.schedule_minute),
+        tzinfo=tz,
+    )
+    current = now or datetime.now(tz)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=tz)
+    else:
+        current = current.astimezone(tz)
+    # Si aún no llega la hora (prueba manual), no cortar por el futuro.
+    return cutoff if current >= cutoff else current
 
 
 def should_run_scheduled(ctx: RuntimeContext, now: datetime | None = None) -> bool:
@@ -30,7 +72,7 @@ def should_run_scheduled(ctx: RuntimeContext, now: datetime | None = None) -> bo
 
     frequency = (ctx.app.schedule.frequency or "weekly").strip().lower()
     if frequency == "semimonthly":
-        if now.day not in (1, 15):
+        if not is_semimonthly_send_day(now.date()):
             return False
     elif now.weekday() != ctx.schedule_weekday:
         return False
@@ -56,14 +98,21 @@ def run_boletin(
     else:
         start, end = ctx.period_bounds(reference_date)
     generated = reference_date or ctx.today_local()
+    cutoff = collection_cutoff(ctx, reference_date=generated)
     logger.info(
-        "Temática=%s | Periodo %s → %s",
+        "Temática=%s | Periodo %s → %s%s",
         theme.id,
         start,
         end,
+        f" | corte {cutoff.isoformat()}" if cutoff else "",
     )
 
-    articles = collect_articles(start, end, queries=list(theme.queries))
+    articles = collect_articles(
+        start,
+        end,
+        queries=list(theme.queries),
+        cutoff=cutoff,
+    )
     boletin = analyze_articles(
         articles,
         ctx.secrets,
