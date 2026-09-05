@@ -1,5 +1,20 @@
 [
   {
+    "id": "pol_tica_chilena_825901e6_2026-08-29_2026-09-04",
+    "theme_id": "pol_tica_chilena_825901e6",
+    "theme_title": "Boletín Semanal Análisis Político en Chile",
+    "theme_label": "Política Chilena",
+    "author": "Raimundo Ibieta",
+    "periodo_inicio": "2026-08-29",
+    "periodo_fin": "2026-09-04",
+    "generado_el": "2026-09-04",
+    "noticias": 7,
+    "pdf_local": "boletines/pol_tica_chilena_825901e6_2026-08-29_2026-09-04.pdf",
+    "drive_view_link": "",
+    "drive_download_link": "",
+    "published_at": "2026-09-05T00:13:46.568952+00:00"
+  },
+  {
     "id": "chile_y_mundo_15_fin_3b0040a6_2026-08-01_2026-08-31",
     "theme_id": "chile_y_mundo_15_fin_3b0040a6",
     "theme_title": "Panorama Quincenal de Chile y el Mundo",
